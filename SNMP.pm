@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '0.90';
+$VERSION = '0.91';
 
 use strict;
 
