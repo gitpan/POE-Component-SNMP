@@ -14,7 +14,7 @@ else {
 }
 
 POE::Session->create
-( inline_states => 
+( inline_states =>
   {
     _start      => \&snmp_get_tests,
     _stop       => \&stop_session,
@@ -39,7 +39,7 @@ sub snmp_get_tests {
     $kernel->post( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.1.0']);
     $kernel->post( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.2.0']);
     $kernel->post( snmp => 'dispatch' );
-    $kernel->post( snmp => 'finish' );
+    $heap->{expect_results} = 2;
 }
 
 # store results for future processing
@@ -48,7 +48,11 @@ sub snmp_get_cb {
     my $href = $aref->[0];
     foreach my $k (keys %$href) {
         $heap->{results}{$k} = $href->{$k};
-    }  
+	$heap->{got_results}++;
+    }
+    if ($heap->{got_results} == $heap->{expect_results}) {
+	$kernel->post( snmp => 'finish' );
+    }
 }
 
 sub stop_session {

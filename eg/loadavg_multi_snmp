@@ -1,0 +1,310 @@
+#!/usr/bin/perl
+
+use Tk;
+use Tk::Graph;
+
+use POE qw/Wheel::Run Component::SNMP Component::SNMP::Dispatcher/;
+
+use Data::Dumper;
+
+use strict;
+
+use constant SSH_HOSTS => 0;
+use constant SNMP_HOSTS => 1;
+use constant STATUS_LINE => 1;
+use constant SHOW_ALL_LOADS => 0;
+
+# do 'trace_calls.pl';
+
+my $VERBOSE = 0;
+my $DELAY = 3;
+
+$|++;
+
+# {{{ SNMP variables
+
+#my $load1_oid = 'enterprises.ucdavis.laTable.laEntry.laLoad.1';
+my $load1_oid  = '.1.3.6.1.4.1.2021.10.1.3.1';
+my $load5_oid  = '.1.3.6.1.4.1.2021.10.1.3.2';
+my $load15_oid = '.1.3.6.1.4.1.2021.10.1.3.3';
+# hostname oid: system.sysName => 1.3.6.1.2.1.1.5.0
+my $host_oid = '.1.3.6.1.2.1.1.5.0';
+
+# }}} SNMP variables
+
+# {{{ HOSTS
+
+no warnings;			# warnings complains about the '#'
+                                # chars in the colors
+
+my %ssh_host = ( #   host   1       5      15
+   orasun => [qw( orasun blue #0000DD #0000DD )],
+);
+
+my %snmp_host =
+  (
+   'c-e'  => [qw( c-e    #FF0000 #DD0000 #AA0000 )],
+   'w-e'  => [qw( w-e     yellow #DD00DD #AA00AA )],
+   'm-e'  => [qw( m-e     orange  orange  orange )],
+   update => [qw( update magenta #DD00DD #AA00AA )],
+   ads    => [qw( ads      green #00DD00 #00AA00 )],
+
+   orasun => [qw( orasun blue ) ],
+
+);
+use warnings;
+
+# }}} HOSTS
+
+## STATES ##
+# {{{ _start
+
+sub _start {
+    my($kernel, $heap, $session) = @_[KERNEL, HEAP, SESSION];
+    $kernel->alias_set('grapher');
+
+    # {{{ ssh hosts
+
+    my %config;
+    if (SSH_HOSTS) {
+	while (my ($name, $etc) = each %ssh_host) {
+	    my ($host, $one, $five, $fifteen) = @$etc;
+	    my $name_01 = "${name}_01";
+	    my $name_05 = "${name}_05";
+	    my $name_15 = "${name}_15";
+
+	    $config{$name_01} = {
+				 -title => SHOW_ALL_LOADS ? "$name  1" : $name,
+				 -color => $one,
+				};
+
+	    if (SHOW_ALL_LOADS) {
+		$config{$name_05} = {
+				     -title => "$name  5",
+				     -color => $five,
+				    };
+
+		$config{$name_15} = {
+				     -title => "$name 15",
+				     -color => $fifteen,
+				    };
+	    }
+
+	    ## setup the iostat process
+	    my $watcher = POE::Wheel::Run->new(
+					       Program => ['ssh', $host, qq[sh -c "while uptime; do sleep $DELAY; done]],
+					       StdoutEvent => 'got_line',
+					       StderrEvent => 'got_line',
+					      );
+
+	    $heap->{watcher}->{$watcher->ID()} = $watcher;
+	    $heap->{fields}->{$watcher->ID()} = [ $name_01,
+						  ($name_05, $name_15) x SHOW_ALL_LOADS
+						];
+	}
+    }
+
+    # }}} ssh hosts
+    # {{{ snmp hosts
+
+    if (SNMP_HOSTS) {
+	while (my ($name, $etc) = each %snmp_host) {
+	    my ($host, $one, $five, $fifteen) = @$etc;
+	    my $name_01 = "${name}_01";
+	    my $name_05 = "${name}_05";
+	    my $name_15 = "${name}_15";
+
+	    $config{$name_01} = {
+				 -title => SHOW_ALL_LOADS ? "$name  1" : $name,
+				 -color => $one,
+				};
+
+	    if (SHOW_ALL_LOADS) {
+		$config{$name_05} = {
+				     -title => "$name  5",
+				     -color => $five,
+				    };
+
+		$config{$name_15} = {
+				     -title => "$name 15",
+				     -color => $fifteen,
+				    };
+	    }
+
+	    ## setup the iostat process
+	    POE::Component::SNMP->create(
+					 hostname  => $host,
+					 community => 'public',
+					 alias => "snmp_$name",
+					 timeout => 2,
+					 retries => 1,
+					 # debug => 0x3E,
+					 # debug => 0x04, # transport
+					);
+
+	    $heap->{fields}->{$name} = [ $name_01,
+					 ($name_05, $name_15) x SHOW_ALL_LOADS
+				       ];
+	    $kernel->yield( 'retrigger_snmp' => $host, $name );
+
+	}
+        $POE::Component::SNMP::Dispatcher::TRACE = 1 if 0;
+    }
+
+    # }}} snmp hosts
+    # {{{ status line
+
+    if (STATUS_LINE) {
+	$heap->{stat_watcher} = POE::Wheel::Run->new(
+						     Program => ['ssh', 'c-e', '/usr/local/bin/ad_status'],
+						     StdoutEvent => 'got_status_line',
+						     StderrEvent => '',	#'got_status_error',
+						     StdoutFilter => POE::Filter::Line->new( Literal => "\x07" )
+						    );
+
+	$heap->{st} = $poe_main_window->Label(-text => "- reading stats -");
+	$heap->{st}->pack(-anchor => 'n', -fill => 'x');
+    }
+
+    # }}} status line
+    # {{{ setup the graph widget
+
+    $heap->{ca} = $poe_main_window->Graph(
+					  -type => 'LINE',
+					  -linewidth => 3,
+					  -look => 300,
+					  -sortnames => 'alpha',
+					  -legend => 1,
+					  # -lineheight => 30,
+					  # -threed => 3,
+					  -headroom => 10,
+					  -config => \%config,
+					 );
+
+    $poe_main_window->configure(-title => "load averages");
+
+    $heap->{ca}->pack(
+		      -expand => 1,
+		      -fill => 'both',
+		     );
+
+    # }}} setup the graph widget
+
+}
+
+# }}} _start
+# {{{ got_line
+
+sub got_line {
+    my($kernel, $heap, $input, $wheel_id) = @_[KERNEL, HEAP, ARG0, ARG1];
+
+    my ($one, $five, $fifteen) =
+      $input =~ /load averages?:\s+(\S+),\s*(\S+),\s*(\S+)$/
+	or die "cannot grok $input";
+
+    my $fields = $heap->{fields}->{$wheel_id};
+    $heap->{ca}->set(
+		     {
+		      $fields->[0], $one,
+		      ( $fields->[1], $five, $fields->[2], $fifteen ) x SHOW_ALL_LOADS
+		     },
+		    );
+}
+
+# }}} got_line
+# {{{ got_status_line
+
+sub got_status_line {
+    my($kernel, $heap, $input, $wheel_id) = @_[KERNEL, HEAP, ARG0, ARG1];
+
+    # print "$_[STATE]: $input" if $VERBOSE;
+    $input =~ m/Load \S+ \| (.+Day)/;
+    my $status = $1;
+    return if $status =~ /^0.Min/;
+
+    $heap->{st}->configure(-text => $status);
+}
+
+sub got_status_error {
+    print "Status error: ", $_[ARG0], "\n";
+
+}
+
+# }}} got_status_line
+# {{{ snmp_got_line
+
+sub snmp_got_line {
+    my($kernel, $heap, $results, $error) = (@_[KERNEL, HEAP], @{$_[ARG1]});
+
+    my ($host, $name);
+    my ($one, $five, $fifteen);
+
+    ($name) = $_[ARG0][0] =~ /snmp_(.*)/;
+    $host   = $_[ARG0][1];
+
+    if (ref $results) {
+	# GOOD ANSWER!
+
+	($one, $five, $fifteen) = @{$results}{ $load1_oid, ($load5_oid, $load15_oid) x SHOW_ALL_LOADS };
+
+    } elsif ($results =~ /No response from remote host '(.*)'/) {
+	# NO RESPONSE
+
+	warn "SNMP $_[ARG0][0] ($_[ARG0][1]): $results\n" if $VERBOSE;
+
+
+    } else {
+
+	warn "SNMP $_[ARG0][0] ($_[ARG0][1]): $results\n" if $VERBOSE;
+
+    }
+
+    my $fields = $heap->{fields}->{$name};
+    unless (defined $fields) {
+	warn "No such name $name";
+    }
+
+    # this has to go BEFORE set() because sometimes Tk resumes its event loop before set() returns (???).
+    $kernel->delay_add( retrigger_snmp => $DELAY, $host, $name );
+
+    $heap->{ca}->set(
+		     {
+		      $fields->[0] => $one,
+		      ( $fields->[1] => $five,
+			$fields->[2] => $fifteen
+		      ) x SHOW_ALL_LOADS
+		     },
+		    );
+
+}
+
+# }}} snmp_got_line
+# {{{ retrigger_snmp
+
+sub retrigger_snmp {
+    my($kernel, $heap, $host, $name) = @_[KERNEL, HEAP, ARG0, ARG1];
+
+    $host ||= '';
+    warn "retrigger_snmp => $DELAY, $host, $name\n" if $VERBOSE > 1;
+
+    $kernel->post( "snmp_$name" => 'get',
+		   "snmp_got_line",
+		   -varbindlist => [ $load1_oid,
+				     ( $load5_oid, $load15_oid ) x SHOW_ALL_LOADS
+				   ]
+		 );
+}
+
+# }}} retrigger_snmp
+
+POE::Session->create
+  ( inline_states => {
+		      _start => \&_start,
+		      got_line => \&_got_line,
+		      got_status_line => \&got_status_line,
+		      snmp_got_line => \&snmp_got_line,
+		      retrigger_snmp => \&retrigger_snmp,
+		     }
+  );
+
+POE::Kernel->run;

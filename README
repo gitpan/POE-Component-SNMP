@@ -1,4 +1,4 @@
-POE::Component::SNMP version 0.01
+POE::Component::SNMP version 0.90
 =================================
 
 This module is an event-driven SNMP interface for POE.
@@ -23,7 +23,7 @@ This module requires these other modules and libraries:
 
 COPYRIGHT AND LICENCE
 
-Copyright (C) 2003 Todd Caine
+Copyright (C) 2003 Todd Caine, 2004 Rob Bloodgood
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself. 
