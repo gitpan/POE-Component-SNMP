@@ -12,7 +12,7 @@ if( $CONF->{skip_all_tests} ) {
     plan skip_all => 'No SNMP data supplied.';
 }
 else {
-    plan tests => 6;
+    plan tests => 5;
 }
 
 
@@ -37,7 +37,7 @@ sub snmp_get_tests {
         alias     => 'snmp',
         hostname  => $CONF->{'hostname'},
         community => $CONF->{'community'},
-        debug     => 0,
+        debug     => 0x0b,
     );
 
     $kernel->post(
@@ -73,7 +73,8 @@ sub stop_session {
     ok exists($heap->{results}{'.1.3.6.1.2.1.1.4.0'});
     ok exists($heap->{results}{'.1.3.6.1.2.1.1.5.0'});
     ok exists($heap->{results}{'.1.3.6.1.2.1.1.6.0'});
-    ok exists($heap->{results}{'.1.3.6.1.2.1.1.7.0'});
+    # not exported by cygwin
+    # ok exists($heap->{results}{'.1.3.6.1.2.1.1.7.0'});
 }
 
 

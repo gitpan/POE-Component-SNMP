@@ -12,15 +12,18 @@ use Net::SNMP::Message qw(TRUE FALSE);
 use Net::SNMP::Dispatcher ();
 our @ISA = qw/Net::SNMP::Dispatcher/;
 
+our $VERSION = '1.1';
+
 our $INSTANCE;            # Reference to our Singleton object
 
 our $DEBUG = FALSE;       # Debug flag
 #our $DEBUG = TRUE;       # Debug flag
 our $TRACE = FALSE;
+
 if ($ENV{TRACE_DISPATCHER}) {
-$TRACE = TRUE;
+    $TRACE = TRUE;
 }
-# our $TRACE = TRUE;
+
 # use Data::Dumper ();
 
 sub INTERCEPT_SEND_PDU() { 1 };
@@ -61,6 +64,8 @@ sub activate {
 }
 
 # }}} activate
+
+# {{{ Net::SNMP v4.x
 
 # In our SUPER class (Net::SNMP::Dispatcher), the critical methods to
 # interecept are calls to _listen (listen on a socket) and _schedule
@@ -136,6 +141,86 @@ sub _unlisten {
 }
 
 # }}} _unlisten
+
+# }}} Net::SNMP v4.x
+# {{{ Net::SNMP v5.0.0
+
+# In our SUPER class (Net::SNMP::Dispatcher), the critical methods to
+# interecept are calls to register() (listen on a socket) and
+# schedule() (to schedule a timeout action if no response is
+# received), and the corresponding calls to deregister() and cancel().
+# Our versions hand the appropriate actions to POE.
+
+# {{{ schedule
+
+sub schedule {
+    &_trace;
+    my ($this, $time, $callback) = @_;
+
+    $poe_kernel->call(dispatcher => __schedule_event => $time, $this->_callback_create($callback));
+}
+
+# }}} schedule
+# {{{ cancel
+
+sub cancel {
+    &_trace;
+    my ($this, $event) = @_;
+    print "remove delay id $event->[1]\n" if $TRACE;
+
+    $poe_kernel->alarm_remove( $event->[1] );
+}
+
+# }}} cancel
+# {{{ register
+
+# We call( dispatcher => '__listen'), which does select_read() within
+# a POE::Session end returns, instead of simply invoking select_read()
+# here, so that select_read() is guaranteed to occur in the
+# 'dispatcher' session (instead of possibly the parent 'snmp'
+# session).  Otherwise, when we reach _unlisten(), we could get a
+# (silent) failure because the "session doesn't own handle".
+
+# <rant> This was a *GIGANTIC* hassle to debug, and I don't care who
+# knows about it.  During the course of tracing this down, Rocco even
+# added a diagnostic message to indicate this problem (see the Changes
+# file for POE 0.29 ), so at least I can have the satisfaction of
+# having been responsible for somebody else down the line not having
+# to spend hours debugging this same problem. </rant>
+
+sub register {
+    &_trace;
+    my ($this, $transport, $callback) = @_;
+
+    print "register: listening on ", $transport->fileno, "\n" if $TRACE;
+    if (ref ($transport = $this->SUPER::register($transport, $callback))) {
+	$poe_kernel->call( dispatcher => __listen => $transport );
+    }
+
+    return $transport;
+}
+
+# }}} register
+# {{{ deregister
+
+sub deregister {
+    &_trace;
+    my ($this, $transport) = @_;
+
+    print "deregister: unlistening on ", $transport->fileno, "\n" if $TRACE;
+    if (ref ($transport = $this->SUPER::deregister($transport))) {
+	# Stop listening on this socket
+	$poe_kernel->select_read($transport->socket);
+    }
+
+    $poe_kernel->call(dispatcher => __pdu_sent => $transport->fileno ) if INTERCEPT_SEND_PDU;
+
+    return $transport;
+}
+
+# }}} deregister
+
+# }}} Net::SNMP v5.0.0
 
 # {{{ _send_pdu
 
@@ -271,27 +356,42 @@ sub __listen {
 
 # {{{ __send_next_pdu
 
-# this method is not currently used.  see _send_pdu().
+# This module is designed to prevent conflicts between listening
+# sockets and pending requests.  If a request "backs up" on a socket
+# (that socket is currently listening for a reply to a different
+# request), the request PDU is placed in a queue.
+#
+# (which again additionally POE-izes Net::SNMP)
+#
+# this function is invoked by both _send_pdu() and (via __pdu_sent())
+# /_unlisten|deregister/()
+
 sub __send_next_pdu {
     # &_trace;
     my ($this, $kernel, $heap, $pdu, $timeout, $retries) = @_[OBJECT, KERNEL, HEAP, ARG0..$#_];
 
     if (defined $pdu and ref $pdu) {
-	# schedule or execute
 	my $pdu_call = [ $pdu, $timeout, $retries ];
 
+	# schedule or execute
 	if (not exists $heap->{_current_pdu}{$pdu->transport->fileno}) {
+
 	    # print "$_[STATE]: calling SUPER::_send_pdu\n";
 	    $heap->{_current_pdu}{$pdu->transport->fileno} = $pdu_call;
 	    $this->SUPER::_send_pdu(@$pdu_call);
+
 	} else {
+
 	    # print "$_[STATE]: queueing SUPER::_send_pdu\n";
 	    push @{$heap->{_pending_pdu}{$pdu->transport->fileno}}, $pdu_call;
+
 	}
 
     } else { 	# execute next or noop
 	# here we've used a little bit of "bad behavior":
-	# the $_[ARG0] argument is EITHER a $pdu object OR a fileno (integer).
+	#
+	# the $_[ARG0] argument passed to this function is EITHER a
+	# $pdu object reference OR a fileno (integer).
 	my $fileno = $pdu;
 
 	if (exists $heap->{_pending_pdu}{$fileno}
@@ -306,12 +406,24 @@ sub __send_next_pdu {
 # }}} __send_next_pdu
 # {{{ __pdu_sent
 
-# this method is not currently used.  see _send_pdu().
 sub __pdu_sent {
     &_trace;
     my ($kernel, $heap, $fileno) = @_[KERNEL, HEAP, ARG0];
 
+    # XXX Programmer has confused self XXX
+    #
+    # This delete shouldn't be necessary. Meaning, I can't figure out
+    # WHY it's necessary, on this code review. Dang me to heck for not
+    # documenting it when I first wrote it.
+    #
+    # __send_next_pdu simply CALLS any pending $pdu if the argument is
+    # not a reference (like, a fileno argument), and doesn't even
+    # *check* for _current_pdu.  HOWEVER, if I disable this call to
+    # delete here the module ceases to work.
+    #
+    # XXX XXXXXXXXXXXXXXXXXXXXXXXXXXXX XXX
     delete $heap->{_current_pdu}{$fileno};
+
     $kernel->yield(__send_next_pdu => $fileno);
 }
 
@@ -347,7 +459,7 @@ sub _trace {
     }
 }
 
-if (0 and $TRACE) {
+if ($TRACE) {
     my $package = __PACKAGE__ . "::";
     my $super = "$ISA[0]::";
     no strict "refs";

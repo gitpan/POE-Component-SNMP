@@ -20,3 +20,5 @@ Revision history for Perl extension POE::Component::SNMP.
           would install correctly even where a writeable host was
           unavailable.
 	
+0.99  Mon Sep  6 13:19:53 2004
+	- Updated to be compatible with new Net::SNMP release 5.0.0
