@@ -12,12 +12,12 @@ use Net::SNMP::Message qw(TRUE FALSE);
 use Net::SNMP::Dispatcher ();
 our @ISA = qw/Net::SNMP::Dispatcher/;
 
-our $VERSION = '1.1';
+our $VERSION = '1.11';
 
 our $INSTANCE;            # Reference to our Singleton object
 
 our $DEBUG = FALSE;       # Debug flag
-#our $DEBUG = TRUE;       # Debug flag
+# our $DEBUG = TRUE;       # Debug flag
 our $TRACE = FALSE;
 
 if ($ENV{TRACE_DISPATCHER}) {
@@ -174,7 +174,7 @@ sub cancel {
 # }}} cancel
 # {{{ register
 
-# We call( dispatcher => '__listen'), which does select_read() within
+# We call( dispatcher => '__listen' ), which does select_read() within
 # a POE::Session end returns, instead of simply invoking select_read()
 # here, so that select_read() is guaranteed to occur in the
 # 'dispatcher' session (instead of possibly the parent 'snmp'
@@ -253,15 +253,18 @@ sub _new_session {
 
     $self->{_active} = TRUE;
 
-    POE::Session->new( $self,
-			  [ qw/_start _stop
-			       __schedule_event
-			       __invoke_callback
-			       __socket_callback __listen
-			       __send_next_pdu   __pdu_sent
-			       /
-			  ],
-			);
+    POE::Session->create(
+                         object_states =>
+                         [ $self => [ qw/_start _stop
+                                         __schedule_event
+                                         __invoke_callback
+                                         __socket_callback __listen
+                                         __send_next_pdu __pdu_sent
+                                         /
+                                    ],
+                         ],
+                        );
+
 
     $self;
 }
@@ -395,7 +398,7 @@ sub __send_next_pdu {
 	my $fileno = $pdu;
 
 	if (exists $heap->{_pending_pdu}{$fileno}
-	    and @{$heap->{_pending_pdu}{$fileno}}) {
+	    and  @{$heap->{_pending_pdu}{$fileno}}) {
 	    # print "$_[STATE]: calling (queued) SUPER::_send_pdu\n";
 	    $heap->{_current_pdu}{$fileno} = shift @{$heap->{_pending_pdu}{$fileno}};
 	    $this->SUPER::_send_pdu(@{$heap->{_current_pdu}{$fileno}});

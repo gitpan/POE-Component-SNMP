@@ -35,6 +35,7 @@ sub snmp_get_tests {
         -hostname  => $CONF->{hostname} || 'localhost',
         -community => $CONF->{community}|| 'public',
 				 -debug => 0x0B,
+        -timeout   => 5,
     );
 
     $kernel->post( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.1.0']);

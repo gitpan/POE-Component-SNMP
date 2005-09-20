@@ -1,24 +1,31 @@
 Revision history for Perl extension POE::Component::SNMP.
 
 0.01  Mon Apr 21 13:28:31 2003
-	- original version; created by h2xs 1.22 with options
-		-AX -n POE::Component::SNMP
+        - original version; created by h2xs 1.22 with options
+                -AX -n POE::Component::SNMP
 
 0.90  Mon Jun  7 18:44:00 2004
         - Module inherited by Rob Bloodgood, from the previous
-	  mainainer, Todd Caine.
+          mainainer, Todd Caine.
 
-	- added POE::Component::SNMP::Dispatcher module, to subclass
+        - added POE::Component::SNMP::Dispatcher module, to subclass
           Net::SNMP::Dispatcher such that all socket and scheduling
           operations were processed by POE's event loop.
 
-	- updated the callback variables so that the hostname and
-	  session alias of the SNMP object queried are returned to the
-	  callback event.
+        - updated the callback variables so that the hostname and
+          session alias of the SNMP object queried are returned to the
+          callback event.
 
-	- made write tests optional during install, so that the module
+        - made write tests optional during install, so that the module
           would install correctly even where a writeable host was
           unavailable.
-	
-0.99  Mon Sep  6 13:19:53 2004
-	- Updated to be compatible with new Net::SNMP release 5.0.0
+        
+0.92  Mon Sep  6 13:19:53 2004
+        - Updated to be compatible with new Net::SNMP release 5.0.0
+
+0.93  Thu Aug 11 11:57:29 2005
+        - Updated POE session constructor from the deprecated new() to
+          the new create() method.
+
+        - Removed a bunch of commented, deprecated code that was still
+          a holdover from the 0.01

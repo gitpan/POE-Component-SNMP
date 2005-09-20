@@ -3,7 +3,7 @@
 use Tk;
 use Tk::Graph;
 
-use POE qw/Wheel::Run Component::SNMP Component::SNMP::Dispatcher/;
+use POE qw/Wheel::Run Component::SNMP/;
 
 use Data::Dumper;
 

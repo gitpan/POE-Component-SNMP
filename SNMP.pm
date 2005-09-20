@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '0.92';
+$VERSION = '0.93';
 
 use strict;
 
@@ -30,7 +30,7 @@ sub create {
 					   _start   => \&start_snmp_session,
 					   _stop    => \&end_snmp_session,
 					   finish   => \&close_snmp_session,
-					   dispatch => \&dispatch_events,
+					   # dispatch => \&dispatch_events,
 
 					   get      => \&snmp_get,
 					   getnext  => \&snmp_getnext,
@@ -72,9 +72,6 @@ sub start_snmp_session {
     $heap->{snmp_session} = $session;  # Net::SNMP session
 
     $heap->{postback_args} = [ $alias, $session->hostname ];
-
-    # DEPRECATED
-    # $heap->{delayed}      = $delayed;  # delayed dispatch of events
 }
 
 sub close_snmp_session {
@@ -100,9 +97,6 @@ sub snmp_get {
         @snmp_args, -callback => sub { $postback->( $_[0]->var_bind_list, $_[0]->error) },
     );
     warn $heap->{snmp_session}->error unless $ok;
-
-    # DEPRECATED
-    # $heap->{snmp_session}->snmp_dispatcher unless $heap->{delayed};
 }
 
 sub snmp_getnext {
@@ -116,8 +110,6 @@ sub snmp_getnext {
         @snmp_args, -callback => sub { $postback->( $_[0]->var_bind_list, $_[0]->error ) },
     );
     warn $heap->{snmp_session}->error unless $ok;
-    # DEPRECATED
-    # $heap->{snmp_session}->snmp_dispatcher unless $heap->{delayed};
 }
 
 sub snmp_walk {
@@ -131,8 +123,6 @@ sub snmp_walk {
         @snmp_args, -callback => sub { $postback->( $_[0]->var_bind_list, $_[0]->error ) },
     );
     warn $heap->{snmp_session}->error unless $ok;
-    # DEPRECATED
-    # $heap->{snmp_session}->snmp_dispatcher unless $heap->{delayed};
 }
 
 sub snmp_getbulk {
@@ -146,8 +136,6 @@ sub snmp_getbulk {
         @snmp_args, -callback => sub { $postback->( $_[0]->var_bind_list, $_[0]->error ) },
     );
     warn $heap->{snmp_session}->error unless $ok;
-    # DEPRECATED
-    # $heap->{snmp_session}->snmp_dispatcher unless $heap->{delayed};
 }
 
 sub snmp_set {
@@ -171,8 +159,6 @@ sub snmp_set {
         %snmp_args, -callback => sub { $postback->( $_[0]->var_bind_list, $_[0]->error ) },
     );
     warn $heap->{snmp_session}->error unless $ok;
-    # DEPRECATED
-    # $heap->{snmp_session}->snmp_dispatcher unless $heap->{delayed};
 }
 
 sub snmp_trap {
@@ -181,8 +167,6 @@ sub snmp_trap {
         @snmp_args) = @_[KERNEL, HEAP, ARG0..$#_];
     my $ok = $heap->{snmp_session}->trap( @snmp_args );
     warn $heap->{snmp_session}->error unless $ok;
-    # DEPRECATED
-    # $heap->{snmp_session}->snmp_dispatcher unless $heap->{delayed};
 }
 
 sub snmp_inform {
@@ -196,15 +180,13 @@ sub snmp_inform {
         @snmp_args, -callback => sub { $postback->( $_[0]->var_bind_list, $_[0]->error ) },
     );
     warn $heap->{snmp_session}->error unless $ok;
-    # DEPRECATED
-    # $heap->{snmp_session}->snmp_dispatcher unless $heap->{delayed};
 }
 
 # DEPRECATED -- this happens automatically
-sub dispatch_events {
-    my $heap = $_[HEAP];
-    # $heap->{snmp_session}->snmp_dispatcher if $heap->{delayed};
-}
+# sub dispatch_events {
+#     my $heap = $_[HEAP];
+#     # $heap->{snmp_session}->snmp_dispatcher if $heap->{delayed};
+# }
 
 
 1;
@@ -320,16 +302,6 @@ Send a SNMP set request event.
 
 Shutdown the SNMP component.
 
-=item dispatch (DEPRECATED)
-
-  $kernel->post( snmp => 'dispatch' );
-
-I<DEPRECATED>. Does nothing.
-
-Before this module was fully integrated with POE's event processing,
-it was necessary to invoke its behavior by explicitly calling this
-method.
-
 =back
 
 =head1 SEE ALSO
@@ -341,14 +313,14 @@ method.
 
 =head1 AUTHOR
 
-Originally by Todd Caine, E<lt>tcaine@eli.netE<gt>.
+Originally by Todd Caine E<lt>tcaine@eli.netE<gt>.
 
-Adopted and maintained by Rob Bloodgood,
+Adopted and maintained by Rob Bloodgood
 E<lt>rob@exitexchange.comE<gt>.
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2003 by Todd Caine, 2004 by Rob Bloodgood.
+Copyright 2003 by Todd Caine, 2004-2005 by Rob Bloodgood.
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.
