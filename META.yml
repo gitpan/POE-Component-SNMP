@@ -1,8 +1,8 @@
 # http://module-build.sourceforge.net/META-spec.html
 #XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
 name:         POE-Component-SNMP
-version:      0.93
-version_from: SNMP.pm
+version:      0.95
+version_from: lib/POE/Component/SNMP.pm
 installdirs:  site
 requires:
     Net::SNMP:                     0

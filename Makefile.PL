@@ -6,7 +6,7 @@ my $CONFIG_FILE = "config.cache";
 
 WriteMakefile(
     'NAME'		=> 'POE::Component::SNMP',
-    'VERSION_FROM'	=> 'SNMP.pm',
+    'VERSION_FROM'	=> 'lib/POE/Component/SNMP.pm',
     'PREREQ_PM'		=> {'POE' => 0, 'Net::SNMP' => 0},
     ($] >= 5.005 ?
       (AUTHOR     => 'Rob Bloodgood <rob@exitexchange.com>') : ()),
@@ -14,7 +14,7 @@ WriteMakefile(
 
 exit 0 if -e $CONFIG_FILE;
 
-print "The test suite requires the use of an SNMP agent.\n";
+print "The test suite requires access to an SNMP agent.\n";
 my $hostname = prompt("enter a hostname [leave empty to skip all tests]");
 
 if ($hostname) {
@@ -42,3 +42,10 @@ chmod $CONFIG_MODE, $CONFIG_FILE;
 
 exit 0;
 
+# extra targets for realclean to delete the config file
+package MY;
+sub macro { "CONFIG_FILE = $CONFIG_FILE" }
+sub realclean {
+    shift->SUPER::realclean(@_) .
+      qq[\t- \$(RM_F) \$(CONFIG_FILE)] # don't forget \t here!
+}

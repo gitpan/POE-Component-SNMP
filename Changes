@@ -29,3 +29,43 @@ Revision history for Perl extension POE::Component::SNMP.
 
         - Removed a bunch of commented, deprecated code that was still
           a holdover from the 0.01
+
+0.94  Thu Mar 30 14:43:19 2006
+        - Reorganized the module distribution to use a lib/ dir, cuz
+          MakeMaker was being dumb.
+
+        - Updated Makefile.PL to remove the config file on 'make
+          realclean'
+
+        - Tweaked the docs.
+
+        - Altered the sample script in the SYNOPSIS to actually work.
+
+        - Removed remaining commented references to deprecated code.
+
+        - Followed a suggestion from Curtis J. Coleman to re-order
+          component shutdown so that finish() worked correctly.
+
+        - Lots of minor cleanups in the text
+
+        - At LAST: removed the duplicate methods to account for the
+          difference between Net::SNMP 4.x and 5.x.  Now this is
+          achieved by aliasing the functions that need to be
+          duplicated in the symbol table.
+
+0.95  Sat Apr  8 14:46:54 PDT 2006
+        - Collapsed all the identical method calls into a dispatch
+          mechanism around a single method call template.
+
+        - VASTLY improved error handling.
+
+        - Added the snmp method (eg get, set, walk) and request args
+          to the request packet returned to callbacks.
+
+        - Reorganized Dispatcher.pm, trimmed old commented
+          code. Removed unneeded debugging statements.
+
+	- trimmed unnecessary parameters from calls to
+          __invoke_callback().
+
+        - added new tests for various aspects of error handling.

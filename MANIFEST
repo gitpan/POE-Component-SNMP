@@ -4,12 +4,15 @@ MANIFEST.SKIP
 Makefile.PL
 README
 NOTES
-SNMP.pm
-SNMP/Dispatcher.pm
+lib/POE/Component/SNMP.pm
+lib/POE/Component/SNMP/Dispatcher.pm
+t/01_load.t
 t/10_snmp_get.t
 t/20_snmp_getnext.t
 t/30_snmp_walk.t
 t/40_snmp_set.t
 t/50_snmp_getbulk.t
+t/60_errors.t
 eg/loadavg_multi_snmp
+eg/snmp_sample.pl
 META.yml                                 Module meta-data (added by MakeMaker)

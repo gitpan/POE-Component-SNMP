@@ -1,9 +1,9 @@
-POE::Component::SNMP version 0.90
+POE::Component::SNMP version 0.95
 =================================
 
 This module is an event-driven SNMP interface for POE.
 
-POE::Component::SNMP uses the Net::SNMP module written by David M. Town.
+POE::Component::SNMP is based on the Net::SNMP module written by David M. Town.
 
 INSTALLATION
 
@@ -23,7 +23,8 @@ This module requires these other modules and libraries:
 
 COPYRIGHT AND LICENCE
 
-Copyright (C) 2003 Todd Caine, 2004 Rob Bloodgood
+Copyright (C) 2004-2006 Rob Bloodgood
+Copyright (C) 2003 Todd Caine
 
 This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself. 

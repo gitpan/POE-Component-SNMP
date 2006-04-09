@@ -9,7 +9,7 @@ use POE::Component::SNMP;
 my $CONF = do "config.cache";
 
 if( $CONF->{skip_all_tests} ) {
-    plan skip_all => 'No SNMP data supplied.';
+    plan skip_all => 'No SNMP data specified.';
 }
 else {
     plan tests => 5;
@@ -53,7 +53,6 @@ sub snmp_get_tests {
         ],
     );
 
-    $kernel->post( snmp => 'dispatch' );
 }
 
 # store results for future processing

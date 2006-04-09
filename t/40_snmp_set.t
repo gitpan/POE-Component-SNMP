@@ -10,14 +10,13 @@ my $CONF = do "config.cache";
 
 if( $CONF->{skip_all_tests} ) {
     POE::Kernel->run(); # quiets warning: POE::Kernel's run() method was never called.
-    plan skip_all => 'No SNMP data supplied.';
+    plan skip_all => 'No SNMP data specified.';
 } elsif ( not length $CONF->{wcommunity} ) {
     POE::Kernel->run(); # quiets warning: POE::Kernel's run() method was never called.
-    plan skip_all => 'No write community supplied.';
+    plan skip_all => 'No write community specified.';
 } else {
     plan tests => 1;
 }
-
 
 POE::Session->create
 ( inline_states =>
@@ -48,13 +47,12 @@ sub snmp_set_tests {
         'snmp_set_cb',
         -varbindlist => [$sysContact, 'OCTET_STRING', 'support@eli.net'],
     );
-    $kernel->post( snmp => 'dispatch' );
 }
 
 sub snmp_set_cb {
-    my $aref = $_[ARG1];
-    my $href = $aref->[0];
-    is $href->{$sysContact}, 'support@eli.net';
+    my ($kernel, $args) = @_[KERNEL, ARG1];
+    my $results = $args->[0];
+    is $results->{$sysContact}, 'support@eli.net';
     $_[KERNEL]->post( snmp => 'finish' );
 }
 
