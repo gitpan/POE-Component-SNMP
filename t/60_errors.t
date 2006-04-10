@@ -6,8 +6,6 @@ BEGIN { use_ok 'POE::Component::SNMP' };
 use POE;
 use POE::Component::SNMP;
 
-use Spiffy qw/:XXX/;
-
 my $CONF = do "config.cache";
 
 if ( $CONF->{skip_all_tests} ) {
@@ -73,9 +71,8 @@ sub snmp_run_tests {
 	      "session created with missing community";
 
             $kernel->post( snmp_default_community => 'finish') if $kill;
-            # ok $@, "-community defaults: $@";             # defaults to 'public'.
-            # ok $@, "-community defaults to 'public' but warns if not supplied";             # defaults to 'public'.
-            # XXX Why doesn't it throw an error when you create the 2nd one?
+            # ok $@, "-community warns on default: $@";       # defaults to 'public'.
+
         }
     }
 
@@ -158,9 +155,9 @@ sub snmp_run_tests {
 	###
 	### THIS DOES *NOT* throw an error!
 	###
-
-	## THIS RETURNS AN EMPTY, VALID RESULT HASH!
-	## NOT TO BE CONFUSED WITH AN EMPTY STRING.
+        ##
+	## This returns an empty, VALID result hash!
+	## NOT to be confused with an empty string.
 	$heap->{planned}++;
 	$kernel->post(
 		      snmp => get =>
@@ -268,11 +265,7 @@ sub snmp_get_cb {
     my ($kernel, $heap, $request, $aref) = @_[KERNEL, HEAP, ARG0, ARG1];
     my $href = $aref->[0];
 
-    use YAML; # print Dump $aref;
-
     if (ref $href) { # got server results
-
-	# warn Dump( $_[ARG0], $_[ARG1] );
 
 	# catch the results of $kernel->post( snmp => get => -varbindlist => undef )
 	# which should be: [ {}, '' ]
@@ -291,9 +284,6 @@ sub snmp_get_cb {
 
     } elsif (defined $href) {
 	my $message = $href;
-
-	#print #"Got to the second section:\n",
-	#  Dump($aref);
 
 	ok $message, "error: $message";
     }

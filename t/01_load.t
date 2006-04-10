@@ -42,7 +42,7 @@ eval { POE::Component::SNMP->create(
 }
 ;
 
-use YAML;
+# use YAML;
 # print Dump $@;
 # print Dump( [ $object, $error, $@, $! ] );
 

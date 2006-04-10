@@ -6,8 +6,7 @@ use Tk::Graph;
 use POE qw/Component::SNMP Component::Client::TCP/;
 use Time::HiRes qw/time/;
 
-use YAML;
-# use Data::Dumper;
+use Data::Dumper;
 
 use warnings;
 use strict;
@@ -144,8 +143,8 @@ sub snmp_got_data {
     my $one;
     my ($name) = $alias =~ /snmp_(.*)/;
 
-    # $VERBOSE and
-      print Dump [ $request, $response ];
+    $VERBOSE and
+      print Dumper [ $request, $response ];
 
     if (ref $results) {
 	# GOOD ANSWER!
@@ -170,7 +169,7 @@ sub snmp_got_data {
 
     unless (defined $name) {
 	warn "\$name is NOT defined!!!!!!!!\n";
-	warn Dump( $_[ARG0] );
+	warn Dumper( $_[ARG0] );
         return;
     }
 

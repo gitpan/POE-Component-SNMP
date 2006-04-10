@@ -71,7 +71,6 @@ Revision history for Perl extension POE::Component::SNMP.
         - added new tests for various aspects of error handling.
 
 0.96  Mon Apr 10 01:29:40 PDT 2006
-
 	- re-ordered the hostname and community checks so that the
 	  fatal "hostname is required" is thrown BEFORE the warning
 	  "using default community".
@@ -94,3 +93,18 @@ Revision history for Perl extension POE::Component::SNMP.
 
 	- Unified style in docs.  Cleaned up internal and external POD
           links.
+
+0.97  Mon Apr 10 13:14:01 PDT 2006
+
+        - Fixed some formatting tweaks in the docs.
+
+        - Renamed the function snmp_last_error_message to snmp_errmsg,
+          to correspond the the component request 'errmsg', like the
+          other method names.
+
+        - DANG!  Left in some debugging references to YAML and Spiffy
+          that I meant to comment out. Which breaks systems that don't
+          have those modules installed.  Grr.  Fixed.
+
+        - Also pulled references to YAML from the sample script... not
+          everybody has YAML.

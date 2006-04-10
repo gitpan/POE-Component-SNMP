@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '0.96';
+$VERSION = '0.97';
 
 use strict;
 
@@ -53,7 +53,7 @@ sub create {
                                              inform   => \&snmp_inform,
                                              set      => \&snmp_set,
 
-                                             errmsg   => \&snmp_last_error_message,
+                                             errmsg   => \&snmp_errmsg,
                                            },
                           args => [
                                    $alias,   # component alias
@@ -63,9 +63,6 @@ sub create {
 			);
 
 }
-
-# invoke with: $error = $kernel->call( $alias => error );
-sub snmp_last_error_message { $_[HEAP]{snmp_session}->error }
 
 sub start_snmp_session {
     my ($kernel, $heap, $alias, $session, $error) = @_[KERNEL, HEAP, ARG0..$#_];
@@ -104,12 +101,14 @@ sub snmp_inform  { snmp_request( inform_request   => @_ ) }
 sub snmp_set     { snmp_request( set_request      => @_ ) }
 
 sub snmp_request {
-    my $method = shift; # first parameter is the Net::SNMP method to call, then POE args.
+    # first parameter is the Net::SNMP method to call
+    my $method = shift;
+    # then standard POE args
     my ($kernel, $heap, $sender, $state_name, @snmp_args) = @_[KERNEL, HEAP, SENDER, ARG0..$#_];
 
     # extract the PoCo::SNMP request method called, for diagnostics
-    my $action = (caller(1))[3];  # 'POE::Component::SNMP::snmp_get' =>
-    $action =~ s/.*_//;           # 'get'
+    # 'POE::Component::SNMP::snmp_get' => 'get'
+    my $action = (caller(1))[3]; $action =~ s/.*_//;
 
     # do this before the 'set' logic to return an original copy of
     # @snmp_args to the callback.
@@ -150,6 +149,9 @@ sub snmp_trap {
 
     $ok; # if we get call()'d, pass on the return value
 }
+
+# invoke with: $error = $kernel->call( $alias => error );
+sub snmp_errmsg { $_[HEAP]{snmp_session}->error }
 
 # change string constant like 'OCTET_STRING' to a number
 
@@ -290,10 +292,10 @@ In order to access multiple SNMP hosts simultaneously, you must create
 a separate instance of the component for each host, by giving each
 component a different C<-alias> parameter in the constructor.
 
-The C<-alias> and C<-hostname> parameters, as well as other values, are
-passed back to callback events, as described in L</CALLBACKS> below, so
-the callback can determine which host the current response (or
-timeout) is related to.
+The C<-alias> and C<-hostname> parameters, as well as additional
+request-specific data, are passed back to callback events, as
+described in L</CALLBACKS> below, so the callback can determine what
+context the current response (or timeout) is related to.
 
 Note: It is a fatal runtime error to attempt to create more than one
 SNMP session with the same C<-alias>.
@@ -389,14 +391,14 @@ the SNMP component) is invoked.
 
 The callback's C<$_[ARG0]> parameter is an array reference containing
 the request information: the component alias, hostname, the method
-called, and parameters supplied to the request.
+called (e.g. 'get'), and parameters supplied to the request.
 
 The callback's C<$_[ARG1]> parameter is an array reference containing
 the response information: I<either> a hash reference containing
 response data I<or> a scalar error message string.
 
 B<Note:> This is a change from previous versions of the module!  For
-compatibility, any errors are still returned in C<$_[ARG1][1], but
+compatibility, any errors are still returned in C<$_[ARG1][1]>, but
 this I<will> go away.
 
 =head1 SEE ALSO

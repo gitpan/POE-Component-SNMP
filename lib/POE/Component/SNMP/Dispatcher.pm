@@ -226,7 +226,7 @@ sub _start { $_[KERNEL]->alias_set('dispatcher')   }
 # }}} _start
 # {{{ _stop
 
-sub _stop { $_[KERNEL]->alias_remove('dispatcher') }
+sub _stop  { $_[KERNEL]->alias_remove('dispatcher') }
 
 # }}} _stop
 # {{{ __schedule_event
