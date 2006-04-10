@@ -1,4 +1,5 @@
 use Test::More; # qw/no_plan/;
+use strict;
 
 BEGIN { use_ok 'POE::Component::SNMP' };
 
@@ -9,18 +10,16 @@ use Spiffy qw/:XXX/;
 
 my $CONF = do "config.cache";
 
-if( $CONF->{skip_all_tests} ) {
+if ( $CONF->{skip_all_tests} ) {
     plan skip_all => 'No SNMP data specified.';
-}
-else {
-    plan tests => 16;
+} else {
+    plan tests => 20;
 }
 
 
 POE::Session->create
 ( inline_states =>
-  {
-    _start      => \&snmp_run_tests,
+  { _start      => \&snmp_run_tests,
     _stop       => \&stop_session,
     snmp_get_cb => \&snmp_get_cb,
   },
@@ -40,17 +39,18 @@ sub snmp_run_tests {
         # local $TODO = "Error handling";
         eval {
             # throws an error because no hostname:
-            my $retval = POE::Component::SNMP->create(
-                                                      alias     => 'snmp_no_hostname',
-                                                      # hostname  => $CONF->{'hostname'},
-                                                      community => $CONF->{'community'},
-                                                      debug     => 0,
+            POE::Component::SNMP->create(
+					 alias     => 'snmp_no_hostname',
+					 # hostname  => $CONF->{'hostname'},
+					 community => $CONF->{'community'},
+					 debug     => 0,
 
-                                                     );
+					);
         };
 
         ok $@, '-hostname parameter required';
-        # $kernel->post( snmp_no_hostname => 'finish');
+	# this asserts that the alias does *not* exist
+	ok ! $kernel->alias_resolve( 'snmp_no_hostname' ), "session not created with missing hostname";
 
       SKIP: {
             eval { require Test::Warn };
@@ -67,7 +67,12 @@ sub snmp_run_tests {
                   { carped => "using default value 'public' for missing -community" }
                     ;
 
-            $kernel->post( snmp_default_community => 'finish');
+	    # this tests that the alias *does* exist
+	    my $kill;
+	    ok $kill = $kernel->alias_resolve( 'snmp_default_community' ),
+	      "session created with missing community";
+
+            $kernel->post( snmp_default_community => 'finish') if $kill;
             # ok $@, "-community defaults: $@";             # defaults to 'public'.
             # ok $@, "-community defaults to 'public' but warns if not supplied";             # defaults to 'public'.
             # XXX Why doesn't it throw an error when you create the 2nd one?
@@ -85,7 +90,7 @@ sub snmp_run_tests {
     ok $kernel->alias_resolve('snmp'), "normal session create";
 
   SKIP: {
-	skip "dupe session check", 1; #  if exists $ENV{POE_ASSERT_DEFAULT}; # and $POE::VERSION <= 0.34;
+	skip "dupe session check", 2; #  if exists $ENV{POE_ASSERT_DEFAULT}; # and $POE::VERSION <= 0.34;
 
         eval {
 	    POE::Component::SNMP->create( alias     => 'snmp',
@@ -96,7 +101,10 @@ sub snmp_run_tests {
         };
 
         # ok $@, $@;
-        ok $@ =~ /'snmp' already exists|'snmp' is in use by another session/, "duplicate alias check";
+        ok $@ =~ /'snmp' already exists|'snmp' is in use by another session/, "duplicate alias is fatal";
+	# test the session does *not* exist
+	ok !$kernel->alias_resolve('snmp'), "duplicate session not created";
+
     }
 
     $heap->{done} = 0;
@@ -151,8 +159,8 @@ sub snmp_run_tests {
 	### THIS DOES *NOT* throw an error!
 	###
 
-	# doesn't like empty varbindlist
-	# Expected array reference for variable-bindings
+	## THIS RETURNS AN EMPTY, VALID RESULT HASH!
+	## NOT TO BE CONFUSED WITH AN EMPTY STRING.
 	$heap->{planned}++;
 	$kernel->post(
 		      snmp => get =>
@@ -161,7 +169,7 @@ sub snmp_run_tests {
 		     );
 
 
-	# doesn't like undefined varbindlist
+	# doesn't like empty varbindlist
 	# Expected array reference for variable-bindings
 	$heap->{planned}++;
 	$kernel->post(
@@ -170,6 +178,21 @@ sub snmp_run_tests {
 		      -varbindlist => '',
 		     );
 
+	if (0) {
+	    # I expected this to complain, like the others, because
+	    # sysname isn't an array ref.  It didn't.  I'll figure it
+	    # out later.
+
+
+	    # doesn't like string varbindlist, wants an array ref:
+	    # Expected array reference for variable-bindings
+	    $heap->{planned}++;
+	    $kernel->post(
+			  snmp => get =>
+			  'snmp_get_cb',
+			  -varbindlist => $sysName,
+			 );
+	}
 
 
 	# OID value out of range
@@ -244,27 +267,22 @@ sub snmp_run_tests {
 sub snmp_get_cb {
     my ($kernel, $heap, $request, $aref) = @_[KERNEL, HEAP, ARG0, ARG1];
     my $href = $aref->[0];
-    my $err  = $aref->[1];
 
     use YAML; # print Dump $aref;
 
-
-    if ($err) {
-	ok $err, "client: $err";
-    } elsif (ref $href) { # got server results
+    if (ref $href) { # got server results
 
 	# warn Dump( $_[ARG0], $_[ARG1] );
 
 	# catch the results of $kernel->post( snmp => get => -varbindlist => undef )
 	# which should be: [ {}, '' ]
 	if ($request->[2] eq 'get' and
-	    ref $request->[3] eq 'ARRAY' and
-	    @{$request->[3]} == 2 and
-	    $request->[3][0] eq '-varbindlist' and
-	    not defined $request->[3][1]) {
+	    $request->[3] eq '-varbindlist' and
+	    not defined $request->[4]) {
 	    ok keys %$href == 0, "undef args";
-	    ok defined $err, "undef args";
-	    ok !$err, "undef args";
+	    # should be '', which is false.
+	    ok ! $_[ARG1][1], "undef args";
+	    ok ++$heap->{saw_empty}, "empty_request returned for undef -varbindlist";
 	}
 
 	foreach my $k (keys %$href) {
@@ -277,7 +295,7 @@ sub snmp_get_cb {
 	#print #"Got to the second section:\n",
 	#  Dump($aref);
 
-	ok $message, "server: $message";
+	ok $message, "error: $message";
     }
     $kernel->post( snmp => 'finish' ) if ++$heap->{done} == $heap->{planned};
 }
@@ -285,7 +303,9 @@ sub snmp_get_cb {
 sub stop_session {
    my $r = $_[HEAP]->{results};
 
-   print Dump $r;
+   ok $_[HEAP]->{saw_empty}, "undef -varbindlist result seen";
+   ok ! keys %$r, "all expected results received";
+
 #    ok exists($r->{'.1.3.6.1.2.1.1.1.0'});
 #    ok exists($r->{'.1.3.6.1.2.1.1.2.0'});
 #    ok exists($r->{'.1.3.6.1.2.1.1.3.0'});

@@ -2,6 +2,7 @@ BLOCK:
 {
     # paste BELOW this line BETWEEN braces for sample program docs.
 
+    # this script is included in the distribution as eg/snmp_sample.pl
     use POE qw/Component::SNMP/;
 
     my %system = ( sysUptime   => '.1.3.6.1.2.1.1.3.0',
@@ -36,19 +37,15 @@ BLOCK:
     sub snmp_handler {
         my ($kernel, $heap, $request, $response) = @_[KERNEL, HEAP, ARG0, ARG1];
         my ($alias,   $host, $cmd, @args) = @$request;
-        my ($results, $error)             = @$response;
+        my ($results)                     = @$response;
 
-        if ($error) {
-            warn "$host snmp error ($cmd => @args): $error\n";
-        } else {
+	if (ref $results) {
 	    print "$host SNMP config ($cmd):\n";
-	    if (ref $results) {
-		print "sysName:     $results->{$system{sysName}}\n";
-		print "sysUptime:   $results->{$system{sysUptime}}\n";
-		print "sysLocation: $results->{$system{sysLocation}}\n";
-	    } else {
-		print "server response: $results\n";
-	    }
+	    print "sysName:     $results->{$system{sysName}}\n";
+	    print "sysUptime:   $results->{$system{sysUptime}}\n";
+	    print "sysLocation: $results->{$system{sysLocation}}\n";
+	} else {
+            print "$host SNMP error ($cmd => @args):\n$results\n";
         }
 
         if (--$heap->{pending} == 0) {

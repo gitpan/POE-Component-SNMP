@@ -69,3 +69,28 @@ Revision history for Perl extension POE::Component::SNMP.
           __invoke_callback().
 
         - added new tests for various aspects of error handling.
+
+0.96  Mon Apr 10 01:29:40 PDT 2006
+
+	- re-ordered the hostname and community checks so that the
+	  fatal "hostname is required" is thrown BEFORE the warning
+	  "using default community".
+
+	- added new tests for error conditions and parameter errors
+
+	- changed the return values to always return something sane,
+          e.g. a string or a ref, not a string or a ref or maybe an
+          undef, THEN a string!  The only reason I didn't change this
+          before is that I mistakenly thought this weird error
+          structure came directly from Net::SNMP, but it turns out I
+          just inherited it. <sigh>
+
+	- for compatibility, continue to return the $snmp_object->error
+	  value in the second slot, since the last change alters the API.
+
+	- Also, changed the original args returned to callbacks from
+          being a listref to a simple list, in the same way they
+          came in.
+
+	- Unified style in docs.  Cleaned up internal and external POD
+          links.

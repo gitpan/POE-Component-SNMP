@@ -1,8 +1,8 @@
 use Test::More;
 
 use POE;
-plan tests => 3;
-# }
+plan tests => 4;
+
 
 # this quiets the warning "POE::Kernel's run() method was never called."
 END{ $poe_kernel->run() }
@@ -15,7 +15,7 @@ eval { require POE::Component::SNMP };
 # print "ok 1\n";
 ok $POE::Component::SNMP::Dispatcher::INSTANCE, 'loaded';
 
-# THERE IS A TYPO IN 'hostname'! this should generate an error!
+# THERE IS A TYPO IN '-hosntame'! this should generate an error!
 eval { POE::Component::SNMP->create(
                                     -alias     => 'snmp',
                                     -hosntame  => $CONF->{hostname} || 'localhost',
@@ -46,7 +46,12 @@ use YAML;
 # print Dump $@;
 # print Dump( [ $object, $error, $@, $! ] );
 
-ok($@ =~ /^Invalid argument/, 'catches parameter typo');
+ok $@ =~ /^Invalid argument/, 'catches parameter typo';
+
+
+eval { POE::Component::SNMP->create() };
+
+ok $@, $@
 
 
 
