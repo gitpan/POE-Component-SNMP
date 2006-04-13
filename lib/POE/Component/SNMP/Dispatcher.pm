@@ -1,6 +1,6 @@
 package POE::Component::SNMP::Dispatcher;
 
-$VERSION = '1.13';
+$VERSION = '1.14';
 
 use strict;
 
@@ -12,8 +12,7 @@ our @ISA = qw/Net::SNMP::Dispatcher/;
 
 our $INSTANCE;            # Reference to our Singleton object
 
-our $TRACE = 0;
-# $TRACE = 1 if $ENV{TRACE_DISPATCHER};
+*DEBUG_INFO = \&Net::SNMP::Dispatcher::DEBUG_INFO;
 
 # REPLACE Net::SNMP's singleton helper object with our POE-ized one:
 $Net::SNMP::DISPATCHER = POE::Component::SNMP::Dispatcher->instance;
@@ -45,6 +44,78 @@ sub activate { }
 
 # }}} activate
 
+# {{{ send_pdu
+
+# This is a cut-and-pasted copy of Net::SNMP::Dispatcher::send_pdu.
+# (except I added the DEBUG_INFO line and changed TRUE at the end to a
+# 1 because I don't import that constant)
+#
+# I overrode this function to mess with something different, just to
+# see what would happen.  And after I cut/pasted it, I ran make test
+# to ensure things still worked.
+#
+# However, its presence speeds up PoCo::SNMP by a HUGE amount.
+# Before, there were weird delays and pauses in between
+# requests... now those are completely gone.
+#
+# This was a complete accident!  I was just going to do some
+# debugging, and it turned out to be exactly what I needed!
+#
+# It has to do with the reference to \&_send_pdu in the call to
+# $this->schedule() referring to _send_pdu in the CURRENT PACKAGE.  So
+# inheritance doesn't help me, it's actually a reference to the
+# particular function, not a dispatchable method call.  So subclassing
+# the method with identical behavior lets the reference be in the
+# right scope (calling my POE-ized version of _send_pdu()), without
+# changing the behavior.
+
+sub send_pdu
+{
+   my ($this, $pdu, $delay) = @_;
+
+   DEBUG_INFO('%s', dump_args( [ $pdu, $delay ] ));
+
+   # Clear any previous errors
+   $this->_error_clear;
+
+   if ((@_ < 2) || !ref($pdu)) {
+      return $this->_error('Required PDU missing');
+   }
+
+   # If the Dispatcher is active and the delay value is negative,
+   # send the message immediately.
+
+   if ($delay < 0) {
+      if ($this->{_active}) {
+         return $this->_send_pdu($pdu, $pdu->timeout, $pdu->retries);
+      }
+      $delay = 0;
+   }
+
+   $this->schedule($delay, [\&_send_pdu, $pdu, $pdu->timeout, $pdu->retries]);
+
+   1;
+}
+
+# }}} send_pdu
+# {{{ _send_pdu
+
+# _send_pdu() tosses requests into POE space at the __send_next_pdu
+# state, which invokes SUPER::_send_pdu() appropriately as connections
+# become available.
+
+sub _send_pdu {
+    my ($this, $pdu, $timeout, $retries) = @_;
+
+    DEBUG_INFO('%s', dump_args( [ $pdu, $timeout, $retries ] ));
+    # CCCC should this be call() or post()?
+    POE::Kernel->post(dispatcher => __send_next_pdu => $pdu, $timeout, $retries);
+
+    1; # return true, like our SUPER version does
+}
+
+# }}} _send_pdu
+
 # {{{ Net::SNMP v5.x
 
 # In our SUPER class (Net::SNMP::Dispatcher), the critical methods to
@@ -59,6 +130,9 @@ sub activate { }
 sub schedule {
     my ($this, $time, $callback) = @_;
 
+    DEBUG_INFO("%d seconds %s", $time, dump_args([ $callback ]));
+
+    # this *must* be call() because the return value is significant
     POE::Kernel->call(dispatcher => __schedule_event => $time, $this->_callback_create($callback));
 }
 
@@ -69,9 +143,9 @@ sub schedule {
 sub cancel {
     my ($this, $event) = @_;
 
-    # print "remove delay id $event->[1]\n" if $TRACE;
-    POE::Kernel->alarm_remove($event->[1]);
     # $event->[1] is the POE alarm_id, which we stashed in __schedule()
+    DEBUG_INFO('remove delay id %d', $event->[1]);
+    POE::Kernel->alarm_remove($event->[1]);
 }
 
 # }}} cancel
@@ -96,12 +170,13 @@ our $SUPER_deregister = 'SUPER::deregister';
 
 ## coding notes
 #
-# We call(dispatcher => '__listen' ), which does select_read() *within
-# a POE::Session* and returns, instead of simply invoking select_read()
-# here, so that select_read() is guaranteed to occur from within the
-# 'dispatcher' session (instead of possibly the parent 'snmp'
-# session).  Otherwise, when we reach _unlisten(), we could get a
-# (silent) failure because the "session doesn't own handle".
+# Here we say POE::Kernel->call(dispatcher => '__listen' ), which does
+# select_read() *within a POE::Session* and returns, instead of simply
+# invoking select_read() here, so that select_read() is guaranteed to
+# occur from within the 'dispatcher' session (instead of possibly the
+# parent 'snmp' session).  Otherwise, when we reach _unlisten(), we
+# could get a (silent) failure because the "session doesn't own
+# handle".
 
 # <rant> This was a *GIGANTIC* hassle to debug, and I don't care who
 # knows about it.  During the course of tracing this down, Rocco even
@@ -110,14 +185,13 @@ our $SUPER_deregister = 'SUPER::deregister';
 # having been responsible for somebody else down the line not having
 # to spend the hours debugging this same problem that I did.</rant>
 
-# this function and the one that follows are templates that work for
-# both 4.x _listen() & _unlisten() and 5.x register() & deregister().
 sub register {
     my ($this, $transport, $callback) = @_;
 
-    # print "register: listening on ", $transport->fileno, "\n" if $TRACE;
+    DEBUG_INFO('listening on %d', $transport->fileno);
     if (ref ($transport = $this->$SUPER_register($transport, $callback))) {
-	POE::Kernel->call(dispatcher => __listen => $transport);
+	# CCCC should this be call() or post()?
+        POE::Kernel->post(dispatcher => __listen => $transport);
     }
 
     $transport;
@@ -126,16 +200,22 @@ sub register {
 # }}} register
 # {{{ deregister
 
+# there is an optimization here in not having a __unlisten state
+# (avoiding call() overhead), and just telling the kernel directly to
+# stop watching the handle.  __listen only needs to exist because of
+# context.
+
 sub deregister {
     my ($this, $transport) = @_;
 
-    # print "deregister: unlistening on ", $transport->fileno, "\n" if $TRACE;
+    DEBUG_INFO('unlistening on %d', $transport->fileno);
     if (ref ($transport = $this->$SUPER_deregister($transport))) {
-	# Stop listening on this socket
-	POE::Kernel->select_read($transport->socket);
+            # stop listening on this socket
+            POE::Kernel->select_read($transport->socket);
     }
 
-    POE::Kernel->call(dispatcher => __pdu_sent => $transport->fileno);
+    # CCCC should this be call() or post()?
+    POE::Kernel->post(dispatcher => __pdu_sent => $transport->fileno);
 
     $transport;
 }
@@ -169,24 +249,10 @@ if (Net::SNMP->VERSION() < 5.0) {
 
 # }}} Net::SNMP v4.x
 
-# {{{ _send_pdu
-
-# This method is our primary hook into invoking POE's event loop when
-# Net::SNMP goes to send a message.  When this method is called, it
-# jumps into POE space with a call that cascades into the rest of the
-# POE + Net::SNMP interaction.
-sub _send_pdu {
-    my ($this, $pdu, $timeout, $retries) = @_;
-
-    POE::Kernel->call(dispatcher => __send_next_pdu => $pdu, $timeout, $retries);
-}
-
-# }}} _send_pdu
-
 # }}} SUBCLASSED METHODS
 # {{{ POE EVENTS
 
-# By convention here, all POE states, except _start and _stop, have
+# By convention, all POE states, except _start and _stop, have
 # two leading underscores.
 
 # {{{ _new_session
@@ -233,42 +299,44 @@ sub _stop  { $_[KERNEL]->alias_remove('dispatcher') }
 
 sub __schedule_event {
     my ($this, $kernel, $time, $callback) = @_[ OBJECT, KERNEL, ARG0, ARG1 ];
-    # print "$_[STATE]: ($time) ", dump_args([ $callback ]) if $TRACE;
 
-    # In the original Net::SNMP::Dispatcher::_schedule(), the return
-    # value is an $event, as that module understands $events.  In most
-    # cases, the return value of _schedule() is ignored, but when it
-    # is NOT ignored, the return value is expected to be of this
-    # general form:
+    # Net::SNMP::Dispatcher::schedule() returns an $event, as that
+    # module understands $events.  In most cases, the return value of
+    # _schedule() is ignored, but when it is NOT ignored, the return
+    # value is expected to be of this general form:
     #
-    #  [ is_active, event_id (?), callback_reference ]
+    #  [ _ACTIVE, _TIME, _CALLBACK ]
     #
-    # is_active is always true for us.  event_id is internal to
-    # Net::SNMP's event loop and is NOT used with POE's, so we reuse
-    # that slot for our timeout_id if necessary.
-    #
-    # This is the only place I had to really EMULATE the superclass's
-    # guts, because the event is not an object, and subjectively feels
-    # like I'm too close to its internals.  If this ever changes in
-    # Net::SNMP::Dispacher, I'll have to update this return value to
-    # account for it (In fact, this is probably my only criticism of
-    # the otherwise masterfully designed object-orientation of
-    # Net::SNMP and its support modules).
+    # _ACTIVE is always true for us.  _TIME is internal to Net::SNMP's
+    # event loop and is NOT used with POE's, so we reuse that slot for
+    # POE's timeout_id if necessary.  _CALLBACK is an opaque callback
+    # reference.
 
-    my $timeout_id = undef; # yes, I could eliminate this variable,
-                            # but it's so descriptive in the next
-                            # line:
+    my $timeout_id = undef;
+    # yes, I could eliminate $timeout_id, but it's so descriptive in
+    # this next line:
     my $event = [ $this->{_active}, $timeout_id, $callback ];
 
     if ($time) {
-	# We can reuse the $event->[1] slot here to preserve the POE
-	# alarm_id if set.
+	# We use the $event->[1] slot here to preserve the POE
+	# delay_id if set.
 	$timeout_id = $kernel->delay_set(__invoke_callback => $time, $callback);
 	$event->[1] = $timeout_id;
+
+	DEBUG_INFO('%d seconds (delay id %d) %s', $time, $timeout_id, dump_args([ $callback ]));
+
     } else {
-	# we yield here to give the rest of POE a chance to do
-	# something for a sec.
-	$kernel->yield(__invoke_callback => $callback);
+	DEBUG_INFO('immediate %s', dump_args([ $callback ]));
+
+        if (1) {
+            # we yield here to give the rest of POE a chance to do
+            # something for a sec.
+            $kernel->yield(__invoke_callback => $callback);
+        } else {
+            # run the callback directly, saving the POE overhead.
+            $this->_callback_execute($callback);
+        }
+
     }
 
     # give Net::SNMP something it can understand.
@@ -283,8 +351,8 @@ sub __schedule_event {
 
 sub __invoke_callback {
     my ($this, $callback) = @_[OBJECT, ARG0];
+    DEBUG_INFO('%s', dump_args([ $callback ]));
 
-    # print "$_[STATE]: ", dump_args([ $callback ]) if $TRACE;
     $this->_callback_execute($callback);
 }
 
@@ -302,19 +370,22 @@ sub __invoke_callback {
 
 sub __socket_callback {
     my ($this, $socket) = @_[OBJECT, ARG0];
+    my $descriptor = $socket->fileno;
 
-    my $fileno = $socket->fileno;
+    DEBUG_INFO('socket %d got data, calling: %s',
+               $descriptor,
+               dump_args($this->{_descriptors}->{$descriptor}));
 
     # The original call to Net::SNMP::register() preps the appropriate callback
     # information into $this->{_descriptors}, based on the fileno of
-    # $socket.  All we have to do here is invoke it.
+    # $socket.  All we have to do here is look it up and invoke it.
     #
     # Note, I could have made this:
     #
-    # $kernel->yield(__invoke_callback => @{$this->{_descriptors}->{$fileno}});
+    # $kernel->yield(__invoke_callback => @{$this->{_descriptors}->{$descriptor}}[0,1]);
     #
-    # ... but why add the overhead for the call?
-    $this->_callback_execute(@{$this->{_descriptors}->{$fileno}});
+    # ... but why add the overhead for the call()?
+    $this->_callback_execute(@{$this->{_descriptors}->{$descriptor}}[0,1]);
 }
 
 # }}} __socket_callback
@@ -322,9 +393,12 @@ sub __socket_callback {
 
 # See comments on register().
 sub __listen {
-    my ($kernel, $transport) = @_[KERNEL, ARG0];
+    my ($kernel, $heap, $transport) = @_[KERNEL, HEAP, ARG0];
+    my $descriptor = $transport->fileno;
 
+    DEBUG_INFO('listening on descriptor %d', $descriptor);
     $kernel->select_read($transport->socket, '__socket_callback');
+
 }
 
 # }}} __listen
@@ -345,6 +419,8 @@ sub __listen {
 sub __send_next_pdu {
     my ($this, $kernel, $heap, $arg, $timeout, $retries) = @_[OBJECT, KERNEL, HEAP, ARG0..$#_];
 
+    # use Data::Dumper; print Dumper( [ @_[STATE, ARG0..$#_] ] );
+
     # here we've used a little bit of "bad behavior":
     #
     # the $_[ARG0] argument, $arg, passed to this function is EITHER a
@@ -354,40 +430,43 @@ sub __send_next_pdu {
     if (defined $arg and ref $arg) {
         # invoked with a pdu object.
 	my $pdu = $arg;
+        my $descriptor = $pdu->transport->fileno;
 
 	# these are the three args this function was called with.
 	my @pdu_args = ( $pdu, $timeout, $retries );
 
-	# schedule or execute
-	if (not exists $heap->{_current_pdu}{$pdu->transport->fileno}) {
+        # schedule or execute
+        if (not exists $heap->{_current_pdu}{$descriptor}) {
 
-	    # print "$_[STATE]: calling SUPER::_send_pdu\n";
-	    $heap->{_current_pdu}{$pdu->transport->fileno} = \@pdu_args;
-	    $this->SUPER::_send_pdu(@pdu_args);
+            DEBUG_INFO('calling SUPER::_send_pdu for descriptor %d', $descriptor);
+            $heap->{_current_pdu}{$descriptor} = \@pdu_args;
+            $this->SUPER::_send_pdu(@pdu_args);
 
-	} else {
+        } else {
 
-	    # print "$_[STATE]: queueing SUPER::_send_pdu\n" if $TRACE;
-	    push @{$heap->{_pending_pdu}{$pdu->transport->fileno}}, \@pdu_args;
+            DEBUG_INFO('queueing SUPER::_send_pdu for descriptor %d', $descriptor);
+            push @{$heap->{_pending_pdu}{$descriptor}}, \@pdu_args;
 
-	}
+        }
 
-    } else { 	# execute next or NOOP
+    } else {                    # execute next or NOOP
         # Here is where look up the fileno in our pending requests,
         # and invoke the next one.
-	my $fileno = $arg;
+	my $descriptor = $arg;
 
-	if ( exists $heap->{_pending_pdu}{$fileno}
-             and  @{$heap->{_pending_pdu}{$fileno}} ) {
+	if ( exists $heap->{_pending_pdu}{$descriptor}
+             and  @{$heap->{_pending_pdu}{$descriptor}} ) {
 
-	    # print "$_[STATE]: calling (queued) SUPER::_send_pdu\n" if $TRACE;
+            DEBUG_INFO('calling (queued) SUPER::_send_pdu for descriptor %d', $descriptor);
 
 	    # remove the first item off of the _pending_pdu list
-	    $heap->{_current_pdu}{$fileno} = shift @{$heap->{_pending_pdu}{$fileno}};
+	    $heap->{_current_pdu}{$descriptor} = shift @{$heap->{_pending_pdu}{$descriptor}};
 	    # deref it as a listref and pass it to _send_pdu
-	    $this->SUPER::_send_pdu(@{$heap->{_current_pdu}{$fileno}});
+	    $this->SUPER::_send_pdu(@{$heap->{_current_pdu}{$descriptor}});
 
-	}
+	} else {
+            DEBUG_INFO('no pending PDUs');
+        }
     }
 }
 
@@ -395,10 +474,14 @@ sub __send_next_pdu {
 # {{{ __pdu_sent
 
 sub __pdu_sent {
-    my ($kernel, $heap, $fileno) = @_[KERNEL, HEAP, ARG0];
+    my ($kernel, $heap, $descriptor) = @_[KERNEL, HEAP, ARG0];
 
-    delete $heap->{_current_pdu}{$fileno};
-    $kernel->yield(__send_next_pdu => $fileno);
+    DEBUG_INFO('calling __send_next_pdu on descriptor %d', $descriptor);
+
+    # use Data::Dumper; print STDERR Dumper ($heap);
+
+    delete $heap->{_current_pdu}{$descriptor};
+    $kernel->yield(__send_next_pdu => $descriptor);
 }
 
 # }}} __pdu_sent
@@ -410,19 +493,20 @@ sub __pdu_sent {
 # this code generates overload stubs for EVERY method in class
 # SUPER, that warn their name and args before calling SUPER::whatever.
 if (0) {
+# if (1) {
     my $package = __PACKAGE__ . "::";
     my $super = "$ISA[0]::";
     no strict "refs";
 
     for (grep defined *{"$super$_"}{CODE}, keys %{$super}) {
-	next if /_*[A-Z]+$/;
+	next if /_*[A-Z]+$/; # ignore constants
 	next if defined *{ "$package$_" }{CODE};
-	# print "assigning trace for $_\n";
+	print "assigning trace for $_\n";
 
 	*{ "$package::$_" } =
 	  eval qq[ sub {
 		       my (\$package, \$filename, \$line, \$subroutine, \$sub) = caller (1);
-		       print "$super$_ from \$subroutine:\$line ", (dump_args(\\\@_));
+		       print "$super$_ from \$subroutine:\$line ", (dump_args(\\\@_)), "\n";
 		       goto &{"$super$_"};
 		   }
 		 ];
@@ -451,7 +535,7 @@ sub dump_args {
 	push @out, $out;
     }
 
-    return '{' . join (" ", @out) . '}' . "\n";
+    return '{' . join (" ", @out) . '}';
 }
 
 # }}} dump_args

@@ -34,11 +34,11 @@ sub snmp_get_tests {
     my ($kernel, $heap) = @_[KERNEL, HEAP];
 
     POE::Component::SNMP->create(
-        alias     => 'snmp',
-        hostname  => $CONF->{'hostname'},
-        community => $CONF->{'community'},
-        debug     => 0,
-    );
+                                 alias     => 'snmp',
+                                 hostname  => $CONF->{'hostname'},
+                                 community => $CONF->{'community'},
+                                 # debug     => 0x0B,
+                                );
 
     $kernel->post(
         snmp => 'walk',

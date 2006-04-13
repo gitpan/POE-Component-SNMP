@@ -11,7 +11,7 @@ my $CONF = do "config.cache";
 if ( $CONF->{skip_all_tests} ) {
     plan skip_all => 'No SNMP data specified.';
 } else {
-    plan tests => 20;
+    plan tests => 19;
 }
 
 
@@ -33,48 +33,21 @@ my $system_base  = "1.3.6.1.2.1.1";
 sub snmp_run_tests {
     my ($kernel, $heap) = @_[KERNEL, HEAP];
 
-  TODO: {
-        # local $TODO = "Error handling";
-        eval {
-            # throws an error because no hostname:
-            POE::Component::SNMP->create(
-					 alias     => 'snmp_no_hostname',
-					 # hostname  => $CONF->{'hostname'},
-					 community => $CONF->{'community'},
-					 debug     => 0,
+    eval {
+        # throws an error because no hostname:
+        POE::Component::SNMP->create(
+                                     alias     => 'snmp_no_hostname',
+                                     # hostname  => $CONF->{'hostname'},
+                                     community => $CONF->{'community'},
+                                     debug     => 0,
 
-					);
-        };
+                                    );
+    };
 
-        ok $@, '-hostname parameter required';
-	# this asserts that the alias does *not* exist
-	ok ! $kernel->alias_resolve( 'snmp_no_hostname' ), "session not created with missing hostname";
+    ok $@, '-hostname parameter required';
+    # this asserts that the alias does *not* exist
+    ok ! $kernel->alias_resolve( 'snmp_no_hostname' ), "session not created with missing hostname";
 
-      SKIP: {
-            eval { require Test::Warn };
-            skip "Test::Warn tests", 1 if 1 or $@;
-
-            # warns about default community
-            Test::Warn::warning_is
-                { POE::Component::SNMP->create(
-                                               alias     => 'snmp_default_community',
-                                               hostname  => $CONF->{'hostname'},
-                                               # community => $CONF->{'community'},
-                                              )
-              }
-                  { carped => "using default value 'public' for missing -community" }
-                    ;
-
-	    # this tests that the alias *does* exist
-	    my $kill;
-	    ok $kill = $kernel->alias_resolve( 'snmp_default_community' ),
-	      "session created with missing community";
-
-            $kernel->post( snmp_default_community => 'finish') if $kill;
-            # ok $@, "-community warns on default: $@";       # defaults to 'public'.
-
-        }
-    }
 
     #### dupe sessions:
 
@@ -87,7 +60,8 @@ sub snmp_run_tests {
     ok $kernel->alias_resolve('snmp'), "normal session create";
 
   SKIP: {
-	skip "dupe session check", 2; #  if exists $ENV{POE_ASSERT_DEFAULT}; # and $POE::VERSION <= 0.34;
+	skip "dupe session check not done", 2;
+        #  if exists $ENV{POE_ASSERT_DEFAULT}; # and $POE::VERSION <= 0.34;
 
         eval {
 	    POE::Component::SNMP->create( alias     => 'snmp',
@@ -100,7 +74,7 @@ sub snmp_run_tests {
         # ok $@, $@;
         ok $@ =~ /'snmp' already exists|'snmp' is in use by another session/, "duplicate alias is fatal";
 	# test the session does *not* exist
-	ok !$kernel->alias_resolve('snmp'), "duplicate session not created";
+	ok $kernel->alias_resolve('snmp'), "duplicate session not created";
 
     }
 
@@ -110,39 +84,39 @@ sub snmp_run_tests {
     ### Throw some client-side errors:
     ###
 
-    SKIP: {
-	  0 and
-	    skip "client stuff", 3;
+  SKIP: {
+        0 and
+          skip "client stuff", 3;
 
-	  # wants baseoid, NOT varbindlist
-	  # Invalid argument '-varbindlist'
-	  $heap->{planned}++;
-	  $kernel->post(
-			snmp => walk =>
-			'snmp_get_cb',
-			-varbindlist => $sysName,
-		       );
+        # wants baseoid, NOT varbindlist
+        # Invalid argument '-varbindlist'
+        $heap->{planned}++;
+        $kernel->post(
+                      snmp => walk =>
+                      'snmp_get_cb',
+                      -varbindlist => $sysName,
+                     );
 
-	  # doesn't like empty baseoid parameter
-	  # Expected base OBJECT IDENTIFIER in dotted notation
-	  $heap->{planned}++;
-	  $kernel->post(
-			snmp => walk =>
-			'snmp_get_cb',
-			-baseoid => '',
-		       );
+        # doesn't like empty baseoid parameter
+        # Expected base OBJECT IDENTIFIER in dotted notation
+        $heap->{planned}++;
+        $kernel->post(
+                      snmp => walk =>
+                      'snmp_get_cb',
+                      -baseoid => '',
+                     );
 
-	  # wants varbindlist, NOT baseoid
-	  # Invalid argument '-baseoid'
-	  $heap->{planned}++;
-	  $kernel->post(
-			snmp => get =>
-			'snmp_get_cb',
-			-baseoid => $system_base,
-		       );
+        # wants varbindlist, NOT baseoid
+        # Invalid argument '-baseoid'
+        $heap->{planned}++;
+        $kernel->post(
+                      snmp => get =>
+                      'snmp_get_cb',
+                      -baseoid => $system_base,
+                     );
 
 
-      }
+    }
 
   SKIP: {
 	###
@@ -256,7 +230,7 @@ sub snmp_run_tests {
 		      -varbindlist => [ $read_only_string_oid, 'OCTET_STRING', 'hi mom' ],
 		     );
 
-   }
+    }
 
 }
 

@@ -13,6 +13,7 @@ t/30_snmp_walk.t
 t/40_snmp_set.t
 t/50_snmp_getbulk.t
 t/60_errors.t
+t/70_multi.t
 eg/loadavg_multi_snmp
 eg/snmp_sample.pl
 META.yml                                 Module meta-data (added by MakeMaker)

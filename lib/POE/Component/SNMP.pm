@@ -1,12 +1,12 @@
 package POE::Component::SNMP;
 
-$VERSION = '0.97';
+$VERSION = '0.98';
 
 use strict;
 
 use Net::SNMP ();
 use POE::Session;
-use POE::Component::SNMP::Dispatcher;
+use POE::Component::SNMP::Dispatcher; # the real magic starts here
 
 use Carp;
 
@@ -21,18 +21,21 @@ sub create {
         croak "-hostname parameter required";
     }
 
+    ### This made perfect sense, until I remembered that SNMPv3
+    ### doesn't use community strings.  D'oh!
+
     # bitch unless we get a community
-    unless (exists $arg{community} || exists $arg{-community}) {
-        carp "using default value 'public' for missing -community parameter";
-        $arg{-community} = 'public';
-    }
+    # unless (exists $arg{community} || exists $arg{-community}) {
+    #     carp "using default value 'public' for missing -community parameter";
+    #     $arg{-community} = 'public';
+    # }
 
     my ($session, $error);
 
     # each session binds to a different local port/socket.  This
-    # do..while loop catches any potential port conflicts.
+    # do..while loop catches potential port conflicts.
     do {
-	($session, $error) =
+        ($session, $error) =
           Net::SNMP->session( -nonblocking => 1,
                               -localport => int(rand(65536 - 1025) + 1025 ),
                               %arg,
@@ -123,23 +126,31 @@ sub snmp_request {
     my $ok =
       $heap->{snmp_session}->$method( @snmp_args,
 				      -callback =>
-				      sub { $postback->( defined ($_[0]->var_bind_list) ?
-							 $_[0]->var_bind_list :
-							 $_[0]->error,
-							 # I know this is redundant, it's for
+				      sub { $postback->( ( defined ($_[0]->var_bind_list) ?
+                                                           $_[0]->var_bind_list : $_[0]->error
+                                                         ),
+
+							 # WWW I know this is redundant, it's for
 							 # compatibility. To be removed eventually.
 							 $_[0]->error
-						       ) },
+                                                       )
+                                                    },
 				    );
 
-    $kernel->post( $sender => $state_name => \@postback_args,
-                   [ defined ($heap->{snmp_session}->var_bind_list) ?
-		     $heap->{snmp_session}->var_bind_list :
-		     $heap->{snmp_session}->error,
-		     # I know this is redundant, it's for compatibility. To be removed eventually.
-		     $heap->{snmp_session}->error
-		   ]
-                 ) unless $ok;
+    unless ($ok) {
+        $kernel->post( $sender => $state_name => \@postback_args,
+                       [ ( defined ($heap->{snmp_session}->var_bind_list) ?
+                           $heap->{snmp_session}->var_bind_list :
+                           $heap->{snmp_session}->error,
+                         ),
+
+                         # WWW I know this is redundant, it's for
+                         # compatibility. To be removed eventually.
+                         $heap->{snmp_session}->error
+                       ]
+                     );
+    }
+
 }
 
 sub snmp_trap {
@@ -219,7 +230,7 @@ POE::Component::SNMP - L<POE> interface to L<Net::SNMP>
 
         $kernel->post( snmp => get  => snmp_handler => -varbindlist => \@oids );
         # ... or maybe even ...
-        $kernel->post( snmp => walk => snmp_handler => -baseoid => $base_oid );
+        $kernel->post( snmp => walk => snmp_handler =>     -baseoid => $base_oid );
 
         $heap->{pending} = 2;
     }
@@ -244,6 +255,8 @@ POE::Component::SNMP - L<POE> interface to L<Net::SNMP>
     }
 
     $poe_kernel->run();
+
+    # see the eg/ folder in the distribution more samples
 
 =head1 DESCRIPTION
 
@@ -270,8 +283,9 @@ evaluated by POE, except for C<-alias>, as described below.
 
 C<create()> passes all of its arguments to the constructor for a
 L<Net::SNMP> object untouched with the exception of C<-alias>.  See
-L<Net::SNMP/METHODS> on C<session()> for details.  The constructor
-supports either of the following two parameter naming styles:
+L<Net::SNMP::session()|Net::SNMP/session() - create a new Net::SNMP
+object>.  The constructor supports either of the following two
+parameter naming styles:
 
   $object->method(-parameter => $value);
   $object->method( parameter => $value);
@@ -303,10 +317,13 @@ SNMP session with the same C<-alias>.
 =head2 Sockets
 
 By default, L<Net::SNMP> creates a single socket per I<network
-interface>.  Since L<POE> can only watch one connection per socket at
-a time, this creates a conflict if you want to contact more than one
-remote host simultaneously.  The workaround used by the module is to
-create each socket using a different randomly generated value for the
+interface>.  This is possible because the L<Net::SNMP> event loop
+processes all SNMP requests in FIFO order, and thus is able to reuse
+the same socket for each request, but is not asynchronous.  Since we
+can only watch one connection per socket at a time, this creates a
+conflict if you want to contact more than one remote host
+simultaneously.  The workaround used by the module is to create each
+socket using a different randomly generated value for the
 C<-localport> parameter, specifying a unique local UDP port for each
 host.  This could potentially interfere with remote communications if
 your local firewall policy requires a specific source port for
@@ -330,51 +347,52 @@ See the SYNOPSIS for specific examples.
 
 =over 4
 
-=item B<get>
+=item C<get>
 
-See L<Net::SNMP/METHODS> on C<get_request()>.
+See L<Net::SNMP::get_request()|Net::SNMP/get_request() - send a SNMP get-request to the remote agent>.
 
-=item B<getnext>
+=item C<getnext>
 
-See L<Net::SNMP/METHODS> on C<get_next_request()>.
+See L<Net::SNMP::get_next_request()|Net::SNMP/get_next_request() - send a SNMP get-next-request to the remote agent>.
 
-=item B<getbulk>
+=item C<getbulk>
 
-See L<Net::SNMP/METHODS> on C<get_bulk_request()>.
+See L<Net::SNMP::get_bulk_request()|Net::SNMP/get_bulk_request() - send a SNMP get-bulk-request to the remote agent>.
 
-=item B<walk>
+=item C<walk>
 
-See L<Net::SNMP/METHODS> on C<get_table()>.
+See L<Net::SNMP::get_table()|Net::SNMP/get_table() - retrieve a table from the remote agent>.
 
-=item B<inform>
+=item C<inform>
 
-See L<Net::SNMP/METHODS> on C<inform_request()>.
+See L<Net::SNMP::inform_request()|Net::SNMP/inform_request() - send a SNMP inform-request to the remote manager>.
 
-=item B<set>
+=item C<set>
 
-See L<Net::SNMP/METHODS> on C<set_request()>.
+See L<Net::SNMP::set_request()|Net::SNMP/set_request() - send a SNMP set-request to the remote agent>.
 
-=item B<trap>
+=item C<trap>
 
   $kernel->post( snmp => trap => @snmp_args );
   # or, even better:
   my $status = $kernel->call( snmp => trap => @snmp_args );
 
-Send a SNMPv1 trap message.  See L<Net::SNMP/METHODS> on C<trap()>.
-This method differs from the others in that it does *not* take a state
-name as a callback parameter.  If the method is invoked with
-C<$kernel-E<gt>call()>, the return value is that of
-L<C<trap()>|Net::SNMP/METHODS>. A false value indicates an error, and
-the error message can be retrieved using C<errmsg>, below.
+Send a SNMPv1 trap message.  See L<Net::SNMP::trap()|Net::SNMP/trap()
+- send a SNMP trap to the remote manager>.  This method differs from
+the others in that it does I<not> take a state name as a callback
+parameter.  If the method is invoked with C<POE::Kernel::call()>, the
+return value is that of L<Net::SNMP::trap()|Net::SNMP/trap()
+- send a SNMP trap to the remote manager>. A false value indicates an error,
+and the error message can be retrieved using C<errmsg>, below.
 
-=item B<errmsg>
+=item C<errmsg>
 
   my $last_snmp_error_message = $kernel->call( snmp => 'errmsg' );
 
 Retrieves the last SNMP error message, if any, from the specified SNMP
 session.
 
-=item B<finish>
+=item C<finish>
 
   $kernel->post( snmp => 'finish' );
 

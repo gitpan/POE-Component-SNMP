@@ -95,7 +95,6 @@ Revision history for Perl extension POE::Component::SNMP.
           links.
 
 0.97  Mon Apr 10 13:14:01 PDT 2006
-
         - Fixed some formatting tweaks in the docs.
 
         - Renamed the function snmp_last_error_message to snmp_errmsg,
@@ -108,3 +107,31 @@ Revision history for Perl extension POE::Component::SNMP.
 
         - Also pulled references to YAML from the sample script... not
           everybody has YAML.
+
+0.98  Wed Apr 12 20:02:12 PDT 2006
+        - Improved dispatcher tracing by making all calls consistently
+          trace their execution.  Use Net::SNMP debug functions to
+          report our activities when the debug flag to trace the
+          Dispatcher is set in the constructor.  Gives nice,
+          consistent trace output.
+
+        - Started work to remove the requirement that each host have a
+          different -localport parameter.  I chased it down.  The
+          fundemental question is, how is it possible for Net::SNMP to
+          reuse the same socket for every remote host, without parsing
+          the internals of the packet and matching them to a "replies
+          expected" table?  The answer is, it is not.  Net::SNMP
+          dispatches all queries in the order received, serially.  The
+          workaround we used is correct.  Note to self: NOW STOP
+          WONDERING IF THIS IS POSSIBLE!
+
+        - Accidentally optimized the whole module by a factor of at
+          least 3x by copying Net::SNMP::Dispatcher's send_pdu() into
+          PoCo::SNMP::Dispatcher.  See notes on send_pdu().
+
+        - changed schedule() so that events with no delay simply
+          invoke their callback args instead of post()ing to
+          __invoke_callback.
+
+        - updated _send_pdu to return TRUE, just like the SUPER::
+          version does.

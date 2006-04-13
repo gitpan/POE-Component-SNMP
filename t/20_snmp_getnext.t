@@ -34,11 +34,11 @@ sub snmp_get_tests {
     my ($kernel, $heap) = @_[KERNEL, HEAP];
 
     POE::Component::SNMP->create(
-        alias     => 'snmp',
-        hostname  => $CONF->{'hostname'},
-        community => $CONF->{'community'},
-        debug     => 0x0b,
-    );
+                                 alias     => 'snmp',
+                                 hostname  => $CONF->{'hostname'},
+                                 community => $CONF->{'community'},
+                                 # debug     => 0x08,
+                                );
 
     $kernel->post(
         snmp => 'getnext',
@@ -67,11 +67,11 @@ sub snmp_get_cb {
 
 sub stop_session {
     my $heap = $_[HEAP];
-    ok exists($heap->{results}{'.1.3.6.1.2.1.1.2.0'});
-    ok exists($heap->{results}{'.1.3.6.1.2.1.1.3.0'});
-    ok exists($heap->{results}{'.1.3.6.1.2.1.1.4.0'});
-    ok exists($heap->{results}{'.1.3.6.1.2.1.1.5.0'});
-    ok exists($heap->{results}{'.1.3.6.1.2.1.1.6.0'});
+    ok exists($heap->{results}{'.1.3.6.1.2.1.1.2.0'}), "expected result arrived";
+    ok exists($heap->{results}{'.1.3.6.1.2.1.1.3.0'}), "expected result arrived";
+    ok exists($heap->{results}{'.1.3.6.1.2.1.1.4.0'}), "expected result arrived";
+    ok exists($heap->{results}{'.1.3.6.1.2.1.1.5.0'}), "expected result arrived";
+    ok exists($heap->{results}{'.1.3.6.1.2.1.1.6.0'}), "expected result arrived";
     # not exported by cygwin
     # ok exists($heap->{results}{'.1.3.6.1.2.1.1.7.0'});
 }

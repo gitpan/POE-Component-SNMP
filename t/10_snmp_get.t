@@ -31,25 +31,25 @@ sub snmp_get_tests {
     my ($kernel, $heap) = @_[KERNEL, HEAP];
 
     POE::Component::SNMP->create(
-        -alias     => 'snmp',
-        -hostname  => $CONF->{hostname} || 'localhost',
-        -community => $CONF->{community}|| 'public',
-				 -debug => 0x0B,
-        -timeout   => 5,
-    );
+				 -alias     => 'snmp',
+				 -hostname  => $CONF->{hostname} || 'localhost',
+				 -community => $CONF->{community}|| 'public',
+                                 # -debug     => 0x0B,
+				);
 
-    $kernel->post( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.1.0']);
-    $kernel->post( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.2.0']);
-    $heap->{expect_results} = 2;
+    $kernel->call( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.1.0']);
+    $heap->{expect_results}++;
+    $kernel->call( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.2.0']);
+    $heap->{expect_results}++;
 }
 
 # store results for future processing
 sub snmp_get_cb {
     my ($kernel, $heap, $aref) = @_[KERNEL, HEAP, ARG1];
+    $heap->{got_results}++;
     my $href = $aref->[0];
     foreach my $k (keys %$href) {
         $heap->{results}{$k} = $href->{$k};
-	$heap->{got_results}++;
     }
     if ($heap->{got_results} == $heap->{expect_results}) {
 	$kernel->post( snmp => 'finish' );
@@ -58,8 +58,8 @@ sub snmp_get_cb {
 
 sub stop_session {
     my $heap = $_[HEAP];
-    ok exists($heap->{results}{'.1.3.6.1.2.1.1.1.0'});
-    ok exists($heap->{results}{'.1.3.6.1.2.1.1.2.0'});
+    ok exists($heap->{results}{'.1.3.6.1.2.1.1.1.0'}), "got 1st 'get' result";
+    ok exists($heap->{results}{'.1.3.6.1.2.1.1.2.0'}), "got 2nd 'get' result";
 }
 
 

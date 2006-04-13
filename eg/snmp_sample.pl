@@ -29,7 +29,7 @@ BLOCK:
 
         $kernel->post( snmp => get  => snmp_handler => -varbindlist => \@oids );
         # ... or maybe even ...
-        $kernel->post( snmp => walk => snmp_handler => -baseoid => $base_oid );
+        $kernel->post( snmp => walk => snmp_handler =>     -baseoid => $base_oid );
 
         $heap->{pending} = 2;
     }
@@ -54,5 +54,7 @@ BLOCK:
     }
 
     $poe_kernel->run();
+
+    # see the eg/ folder in the distribution more samples
 
 }
