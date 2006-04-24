@@ -1,0 +1,3 @@
+---
+- find out why closing the session hangs in t/60_errors.t line 111 if
+  $localport_close == 1.

@@ -20,7 +20,7 @@ eval { POE::Component::SNMP->create(
                                     -alias     => 'snmp',
                                     -hosntame  => $CONF->{hostname} || 'localhost',
                                     -community => $CONF->{community}|| 'public',
-                                    -debug => 0x0B,
+                                    -debug     => $CONF->{debug},
                                     -timeout   => 5,
                                    )
 }
@@ -36,23 +36,14 @@ eval { POE::Component::SNMP->create(
                                     -alias     => 'snmp',
                                     -hostname  => $CONF->{hostname} || 'localhost',
                                     -community => $CONF->{community}|| 'public',
-                                    -debgu => 0x0B,
+                                    -debgu     => $CONF->{debug},
                                     -timeout   => 5,
                                    )
 }
 ;
 
-# use YAML;
-# print Dump $@;
-# print Dump( [ $object, $error, $@, $! ] );
-
 ok $@ =~ /^Invalid argument/, 'catches parameter typo';
-
 
 eval { POE::Component::SNMP->create() };
 
-ok $@, $@
-
-
-
-
+ok $@ =~ /hostname parameter required at/; # dies, no params supplied. actually dies on missing hostname parameter.

@@ -6,7 +6,7 @@ Revision history for Perl extension POE::Component::SNMP.
 
 0.90  Mon Jun  7 18:44:00 2004
         - Module inherited by Rob Bloodgood, from the previous
-          mainainer, Todd Caine.
+          maintainer, Todd Caine.
 
         - added POE::Component::SNMP::Dispatcher module, to subclass
           Net::SNMP::Dispatcher such that all socket and scheduling
@@ -129,9 +129,158 @@ Revision history for Perl extension POE::Component::SNMP.
           least 3x by copying Net::SNMP::Dispatcher's send_pdu() into
           PoCo::SNMP::Dispatcher.  See notes on send_pdu().
 
-        - changed schedule() so that events with no delay simply
+        - Changed __schedule_event so that events with no delay simply
           invoke their callback args instead of post()ing to
-          __invoke_callback.
+          __invoke_callback.  This saves me a POE state call.
 
-        - updated _send_pdu to return TRUE, just like the SUPER::
+        - Updated _send_pdu to return TRUE, just like the Net::SNMP
           version does.
+
+0.99
+
+	- Changed send_pdu() optimization. Instead of being a copy of
+          the N:S:D's, we simply change the function reference
+          involved, with local(), before invoking SUPER::send_pdu().
+
+        - Changed __send_next_pdu and __pdu_sent around... the 2nd
+          half of __send_next_pdu belonged logically in __pdu_sent.
+          This saves me a POE state call and is cleaner.
+
+        - Renamed __send_next_pdu to __dispatch_pdu.
+
+        - Discovered that select_read() can take additional args to
+          pass back to the event triggered when a handle goes live.
+          Duuhh.  What this means is, I no longer have to dig into
+          Net::SNMP to find out where they stashed the callback,
+          indexed by the fileno of the socket.  Instead I can simply
+          pass and invoke the supplied callback.  This changed
+          register(), __listen, and __socket_callback.
+
+	- Discovered that extra args support for select_read() wasn't
+          added until 0.32. <sigh> Coded it back, only this time
+          without mucking around with private attributes of my parent
+          class.
+
+	- Tweaked whitespace so stuff looks consistent.
+
+	- Copied the sanity check from Net::SNMP that loads and
+          verifies the dispatcher instance.  Now P:C:S:Dispatcher
+          doesn't muck around with Net::SNMP's package space, just
+          subclasses it.  Instead, P:C:S loads the Dispatcher in a
+          BEGIN block, just like Net::SNMP.  THEN it mucks with
+          Net::SNMP's namespace. <evil grin>
+
+	- Replaced references to $self in the constructor with $this,
+          following Net::SNMP's convention and the rest of the module.
+
+	- Removed alot of folds.  I had folds around every function,
+          now I just have them around major sections.
+
+	- Started working on the edge case where somebody is dumb
+          enough to call finish() while data is still pending.	
+
+	- Updated constructor to accept all forms of -alias, alias,
+          Alias, and the same for -hostname.
+
+	- Removed the check for a valid varbindlist in the error
+          handler of the snmp_request().  Just return the error.
+
+	- Changed tracking of _current_pdu from a reference to the
+          callback args to a simple flag.  All it needs to do is
+          *exist*.
+
+        - Triple-checked that the reference changing done in
+          send_pdu() was indeed persisting for subsequent
+          invocations of _send_pdu().
+
+        - Adusted the debug output to have a more verbose mode
+          available.
+
+        - More work on the finish() cleanup... now we delete pending
+          requests but allow the current request to complete.
+
+	- Altered socket listen/unlisten operations to use
+          select_pause_read() and select_resume_read(), because docs
+          say they are more lightweight.  Initial tests show reduction
+          of approx. 20% in system loadavg with loadavg_multi_snmp.
+
+	- moved the socket ops to two new private methods,
+          _watch_handle() and _unwatch_handle().  These functions
+          maintain the reference counting of who has what handle,
+          without any of the rest of the module having to count any
+          part of it.  that's good. :)
+
+	- had to adjust _unwatch_handle() to NOT stop listening when
+          there are replies due, in __clean_pending
+
+	- put the folds back in, not quite as many before tho.  it's
+          easier to go from block to block that way, and only have the
+          functions unfolded that I'm working on.
+
+	- moved tracking of current and pending requests from the
+          session heap to the dispatcher object, so that the info can
+          be retrieved in POE or non-POE space.
+
+	- added the private method _pending_pdu_count(), based on
+          the last change.
+
+        - renamed __pdu_sent to __dispatch_pending_pdu
+
+	- use _pending_pdu_count() check to skip invoking
+          __dispatch_pending_pdu unless there is actually anything
+          pending.  this saves me a POE state call for most situations.
+	
+	- added accessors for current and pending pdus, instead of
+          getting directly into the heap hash or object.
+
+	- tried to change __clear_pending from an event to an object
+          method, but it hangs when I do that.
+
+	- way, way more tests.  almost rewrote 40_set from
+          scratch... now instead of just blindly setting something, it
+          reads it, sets something else, verifies, then puts it back
+          and verifies.  Much more robust.
+
+        - turns out that a better hook for subclassing than schedule()
+          is _event_insert().  By using it instead, we get A) the same
+          $event reference that cancel() receives, and B) a method
+          name that does *not* change between 4.x and 5.x.  The logic
+          for cancel() stays the same.
+
+	- commented references to schedule/_schedule in the
+          compatibility section.
+
+        - changed _event_insert() so that if the time to invoke the
+          callback is immediate, it is invoked right then, *instead*
+          of calling __schedule.  This saves me another POE state
+          call, woo-hoo!
+
+        - created a global debug flag in the config file so that I can
+          turn on and off debug output in *all* tests with one change.
+
+        - followed to the suggestion of Curtis J. Coleman to add the
+          ability to set arbitrary callback arguments to be returned
+          to callback events along with ordinary response data.
+          created tests for it. actually, I put in a couple of lines
+          of code and then wrote the tests... and then actually put in
+          the feature. :) tests are cool.
+
+        - changed a coupla stray call()'s in the tests to posts().
+
+        - added tests and logic for localport conflicts... my previous
+          code didn't work, and I ran into this error: "Failed to bind
+          UDP/IPv4 socket: Address already in use at ~/bin/wackastat
+          line 38", followed by "POE::Kernel's run() method was never
+          called."
+
+        - added an _arg_scan() to flexibly fetch values from a *list*
+          of key/value pairs.
+
+        - finally tracked down and eliminated the last stray reference
+          that was holding our sessions open when we called 'finish'
+          with requests still in the pipe!!!!  It turns out the
+          $MESSAGE_PROCESSING subsystem was holding a cached copy of
+          our request, including its callback.
+
+        - put an error check in __dispatch_pending_pdu based on an
+          error report from Curtis Coleman

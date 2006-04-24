@@ -3,8 +3,10 @@ use Test::More;
 
 BEGIN { use_ok('POE::Component::SNMP') };
 
-use POE;
-use POE::Component::SNMP;
+use POE qw/Component::SNMP/;
+
+use lib qw(t);
+use TestPCS;
 
 my $CONF = do "config.cache";
 
@@ -12,7 +14,7 @@ if( $CONF->{skip_all_tests} ) {
     plan skip_all => 'No SNMP data specified.';
 }
 else {
-    plan tests => 7;
+    plan tests => 23;
 }
 
 
@@ -27,6 +29,7 @@ POE::Session->create
 
 $poe_kernel->run;
 
+ok 1; # clean exit
 exit 0;
 
 
@@ -38,7 +41,7 @@ sub snmp_get_tests {
                                  hostname  => $CONF->{'hostname'},
                                  community => $CONF->{'community'},
                                  version   => 'snmpv2c',
-                                 # debug     => 0x0B,
+                                 debug     => $CONF->{debug},
                                 );
     $kernel->post(
         snmp => 'getbulk',
@@ -47,29 +50,48 @@ sub snmp_get_tests {
         -maxrepetitions => 8,
         -varbindlist => ['.1.3.6.1.2.1.1'],
     );
+
+    get_sent($heap);
 }
 
 # store results for future processing
 sub snmp_get_cb {
     my ($kernel, $heap, $aref) = @_[KERNEL, HEAP, ARG1];
+    ok get_seen($heap);
+
     my $href = $aref->[0];
+    ok ref $href eq 'HASH'; # no error
+
     foreach my $k (keys %$href) {
-        $heap->{results}{$k} = $href->{$k};
+	ok $heap->{results}{$k} = $href->{$k}; # got a result
     }
-    $kernel->post( snmp => 'finish' );
+
+    if (check_done($heap)) {
+	$kernel->post( snmp => 'finish' );
+	ok check_done($heap);
+    }
 }
 
 sub stop_session {
-   my $r = $_[HEAP]->{results};
-   ok exists($r->{'.1.3.6.1.2.1.1.1.0'});
-   ok exists($r->{'.1.3.6.1.2.1.1.2.0'});
-   ok exists($r->{'.1.3.6.1.2.1.1.3.0'});
-   ok exists($r->{'.1.3.6.1.2.1.1.4.0'});
-   ok exists($r->{'.1.3.6.1.2.1.1.5.0'});
-   ok exists($r->{'.1.3.6.1.2.1.1.6.0'});
-   # not exported by cygwin
-   # ok exists($r->{'.1.3.6.1.2.1.1.7.0'});
-   ok exists($r->{'.1.3.6.1.2.1.1.8.0'});
+    my $r = $_[HEAP]->{results};
+    ok 1;			# got here!
+
+    ok ref $r eq 'HASH';
+
+ SKIP: {
+	skip "bad result", 7 unless ref $r eq 'HASH';
+	ok keys %$r; # got data!
+	ok exists $r->{'.1.3.6.1.2.1.1.1.0'};
+	ok exists $r->{'.1.3.6.1.2.1.1.2.0'};
+	ok exists $r->{'.1.3.6.1.2.1.1.3.0'};
+	ok exists $r->{'.1.3.6.1.2.1.1.4.0'};
+	ok exists $r->{'.1.3.6.1.2.1.1.5.0'};
+	ok exists $r->{'.1.3.6.1.2.1.1.6.0'};
+    SKIP: {
+	    skip "unsupported OID", 1 unless exists $r->{'.1.3.6.1.2.1.1.7.0'};
+	    # not exported by cygwin
+	    ok exists $r->{'.1.3.6.1.2.1.1.7.0'};
+	}
+	ok exists $r->{'.1.3.6.1.2.1.1.8.0'};
+    }
 }
-
-

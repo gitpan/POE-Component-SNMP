@@ -1,13 +1,15 @@
-use lib q[/home/rob/work/Component-SNMP/lib];
-
+# 80_finish.t - finish with call()
 use Test::More;
 
 use POE;
 use POE::Component::SNMP;
 
-
 use lib qw(t);
 use TestPCS;
+
+my $CONF = do "config.cache";
+
+use constant TEST_EARLY_FINISH => 1;
 
 my $CONF = do "config.cache";
 
@@ -15,7 +17,7 @@ if( $CONF->{skip_all_tests} ) {
     plan skip_all => 'No SNMP data specified.';
 }
 else {
-    plan tests => 12;
+    plan tests => 10;
 }
 
 POE::Session->create
@@ -32,21 +34,24 @@ $poe_kernel->run;
 ok 1; # clean exit
 exit 0;
 
-
 sub snmp_get_tests {
     my ($kernel, $heap) = @_[KERNEL, HEAP];
+    $kernel->alias_set('test_session');
 
     POE::Component::SNMP->create(
 				 -alias     => 'snmp',
 				 -hostname  => $CONF->{hostname} || 'localhost',
 				 -community => $CONF->{community}|| 'public',
                                  -debug     => $CONF->{debug},
-                                 -retries   => 0,
 				);
 
-    $kernel->post( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.1.0']);
+    $kernel->call( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.1.0']);
     get_sent($heap);
-    $kernel->post( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.2.0']);
+    $kernel->call( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.2.0']);
+    get_sent($heap);
+    $kernel->call( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.3.0']);
+    get_sent($heap);
+    $kernel->call( snmp => 'get', 'snmp_get_cb', -varbindlist => ['.1.3.6.1.2.1.1.4.0']);
     get_sent($heap);
 }
 
@@ -62,17 +67,32 @@ sub snmp_get_cb {
 	ok $heap->{results}{$k} = $href->{$k}; # got a result
     }
 
+    if (TEST_EARLY_FINISH) {
+	# at this time, the first result has dispatched and we are
+	# processing the result.  *before* we get here, we have
+	# already transmitted the next request!
+
+        $kernel->call( snmp => 'finish' );
+        # $kernel->post( snmp => 'finish' );
+        get_seen($heap);
+    }
+
     if (check_done($heap)) {
-	$kernel->post( snmp => 'finish' );
+	# $kernel->post( snmp => 'finish' );
 	ok check_done($heap);
     }
 }
 
 sub stop_session {
+    $_[KERNEL]->alias_remove('test_session');
+
     my $r = $_[HEAP]->{results};
     ok 1; # got here!
     ok ref $r eq 'HASH';
 
-    ok exists($r->{'.1.3.6.1.2.1.1.1.0'});
-    ok exists($r->{'.1.3.6.1.2.1.1.2.0'});
+    ok   exists($r->{'.1.3.6.1.2.1.1.1.0'});
+    ok ! exists($r->{'.1.3.6.1.2.1.1.2.0'}), "did NOT get 2nd result";
+    ok ! exists($r->{'.1.3.6.1.2.1.1.3.0'}), "did NOT get 3rd result";
+    ok ! exists($r->{'.1.3.6.1.2.1.1.4.0'}), "did NOT get 4th result";
+
 }
