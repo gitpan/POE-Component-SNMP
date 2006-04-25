@@ -1,4 +1,4 @@
-POE::Component::SNMP version 1.00
+POE::Component::SNMP
 =================================
 
 This module is an event-driven SNMP interface for POE.

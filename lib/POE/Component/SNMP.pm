@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '1.01';
+$VERSION = '1.02';
 
 use strict;
 
@@ -70,8 +70,6 @@ package POE::Component::SNMP;
 
 use POE::Session;
 use POE::Component::SNMP::Dispatcher; # the real magic starts here
-
-use Spiffy qw/:XXX/;
 
 our $DISPATCHER;
 

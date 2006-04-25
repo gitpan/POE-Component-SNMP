@@ -285,7 +285,20 @@ Revision history for Perl extension POE::Component::SNMP.
           error report from Curtis Coleman
 
 1.00 Mon Apr 24 15:55:23 PDT 2006
+        - release
 
+1.01 Mon Apr 24 17:41:08 PDT 2006
         - already got an error report from Curtis
           Coleman.. __socket_callback ended up seeing an empty
           callback.  Fix by deferring unless there is a current callback.
+
+1.02 Tue Apr 25 11:38:00 PDT 2006
+        - CPAN automated testing indicates not being able to correctly
+          locate TestPCS.pm.  Turns out I forgot to put it into the
+          MANIFEST, so it wasn't bundled in the distribution!
+
+        - Turns out my tests were anticipating the wealth of results
+          available from the Net-SNMP daemon, which is not delivered
+          from, for example, an Alcatel DSLAM.  With the invaluable
+          assistance of Curtis Coleman again, as well as a few others
+          in #PoE, got the tests straightened out.  Thanks guys!

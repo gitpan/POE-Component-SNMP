@@ -18,6 +18,7 @@ t/70_multi.t
 t/80_finish_call.t
 t/85_finish_post.t
 t/90_callback_args.t
+t/TestPCS.pm
 eg/loadavg_multi_snmp
 eg/snmp_sample.pl
 META.yml                                 Module meta-data (added by MakeMaker)

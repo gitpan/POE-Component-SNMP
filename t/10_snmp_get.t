@@ -5,7 +5,6 @@ use Test::More;
 use POE;
 use POE::Component::SNMP;
 
-
 use lib qw(t);
 use TestPCS;
 
@@ -75,4 +74,18 @@ sub stop_session {
 
     ok exists($r->{'.1.3.6.1.2.1.1.1.0'});
     ok exists($r->{'.1.3.6.1.2.1.1.2.0'});
+}
+
+sub get_sent { ++$_[0]->{get_sent} }
+
+sub get_seen { ++$_[0]->{get_seen} }
+
+sub set_sent { ++$_[0]->{set_sent} }
+
+sub set_seen { ++$_[0]->{set_seen} }
+
+sub check_done {
+    $_[0]->{set_sent} == $_[0]->{set_seen}
+        and
+        $_[0]->{get_sent} == $_[0]->{get_seen}
 }

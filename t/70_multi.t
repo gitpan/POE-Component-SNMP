@@ -114,8 +114,6 @@ sub snmp_run_tests {
     set_sent($heap);
 }
 
-# use Spiffy qw/:XXX/;
-
 sub get_cb {
     my ($kernel, $heap, $request, $response) = @_[KERNEL, HEAP, ARG0, ARG1];
     my ($alias,   $host, $cmd, @args) = @$request;

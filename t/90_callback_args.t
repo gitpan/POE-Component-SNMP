@@ -76,8 +76,6 @@ sub snmp_get_tests {
 
 }
 
-use Spiffy qw/:XXX/;
-
 # callback receives a list
 sub snmp_get_true {
     my ($kernel, $heap, $aref) = @_[KERNEL, HEAP, ARG1];
