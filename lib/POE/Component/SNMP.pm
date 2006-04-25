@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '1.00';
+$VERSION = '1.01';
 
 use strict;
 
@@ -94,6 +94,7 @@ sub create {
     # my $alias = delete $arg{alias} || delete $arg{Alias} || delete $arg{-alias} || 'snmp';
     my $alias;
 
+    # we don't do alias dupe checks anymore, we leave that to POE
     ($alias, %arg) = _arg_scan(alias => @arg);
     $alias ||= 'snmp';
 
@@ -227,8 +228,8 @@ sub snmp_request {
             @snmp_args = _dwim_set_request_args(@snmp_args);
         }
 
-
         my $postback = $sender->postback($state_name => @postback_args);
+        if (0) {
         my $callback = sub { $postback->( ( defined ($_[0]->var_bind_list) ?
                                             $_[0]->var_bind_list : $_[0]->error
                                           ),
@@ -237,6 +238,7 @@ sub snmp_request {
                          };
 
         my $cb_ref = [ $callback ];
+        }
 
         $ok = $heap->{snmp_session}->$method( @snmp_args,
                                               -callback =>

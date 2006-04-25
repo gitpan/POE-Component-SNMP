@@ -137,7 +137,6 @@ Revision history for Perl extension POE::Component::SNMP.
           version does.
 
 0.99
-
 	- Changed send_pdu() optimization. Instead of being a copy of
           the N:S:D's, we simply change the function reference
           involved, with local(), before invoking SUPER::send_pdu().
@@ -284,3 +283,9 @@ Revision history for Perl extension POE::Component::SNMP.
 
         - put an error check in __dispatch_pending_pdu based on an
           error report from Curtis Coleman
+
+1.00 Mon Apr 24 15:55:23 PDT 2006
+
+        - already got an error report from Curtis
+          Coleman.. __socket_callback ended up seeing an empty
+          callback.  Fix by deferring unless there is a current callback.

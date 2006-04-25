@@ -1,6 +1,6 @@
 package POE::Component::SNMP::Dispatcher;
 
-$VERSION = '1.25';
+$VERSION = '1.26';
 
 use strict;
 
@@ -481,13 +481,15 @@ sub __dispatch_pending_pdu {
 
     return if $this->{_abort};
 
-    DEBUG_INFO('sending (queued) request on [%d] %d remaining',
-               $fileno, $this->_pending_pdu_count($fileno) - 1);
-
     # mark this fileno active
     my $next_pdu = $this->_get_next_pending_pdu($fileno);
     return unless ref $next_pdu eq 'ARRAY';
+
+    # mark this request current
     $this->_current_pdu($fileno => $next_pdu->[0]);
+
+    DEBUG_INFO('sending (queued) request on [%d] %d remaining',
+               $fileno, $this->_pending_pdu_count($fileno));
 
     VERBOSE and DEBUG_INFO('{--------  SUPER::__send_pdu() for [%d]', $fileno);
     $this->SUPER::_send_pdu( @{ $next_pdu } );
@@ -576,6 +578,8 @@ sub __listen {
 sub __socket_callback {
     my ($this, $heap, $socket) = @_[OBJECT, HEAP, ARG0];
     my $fileno = $socket->fileno;
+
+    return unless $this->_current_callback($fileno);
 
     DEBUG_INFO('{--------  invoking callback for [%d] %s',
 	       $fileno, dump_args($this->_current_callback($fileno)));
