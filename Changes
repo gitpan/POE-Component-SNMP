@@ -302,3 +302,17 @@ Revision history for Perl extension POE::Component::SNMP.
           from, for example, an Alcatel DSLAM.  With the invaluable
           assistance of Curtis Coleman again, as well as a few others
           in #PoE, got the tests straightened out.  Thanks guys!
+
+1.03 Fri Jun  2 18:51:19 PDT 2006
+        - small doc tweaks
+
+        - micro-optimized _pending_pdu_count by skipping exists() and
+          just using ref().
+
+        - added a check to __schedule_event to execute immediately if
+          for some strange reason the time of execution has already
+          arrived and yet we're still invoking __schedule.
+
+        - fixed a logic error in the -localport initializer that was
+          preventing retries if the random port chosen was already in
+          use.  Thanks to Curtis Coleman for the spot.

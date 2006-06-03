@@ -161,7 +161,7 @@ sub cancel {
     DEBUG_INFO('remove alarm id %d', $event->[_TIME]);
     POE::Kernel->alarm_remove($event->[_TIME]);
 
-    return !! $this->_pending_pdu_count; # boolean: are there entries are left
+    return ! ! $this->_pending_pdu_count(); # boolean: are there entries are left
 }
 
 # }}} schedule and cancel
@@ -210,7 +210,8 @@ sub register {
 # corresponding to __listen (avoiding call() overhead), and just
 # telling the kernel directly to stop watching the handle.  __listen
 # only needs to exist because when we watch a socket, we have to be in
-# the right session.
+# the right session... deregister() is always called in the same
+# session as __listen.
 
 sub deregister {
     my ($this, $transport) = @_;
@@ -283,10 +284,11 @@ if (Net::SNMP->VERSION() < 5.0) {
 # }}} SUBCLASSED METHODS
 # {{{ PRIVATE METHODS
 
-### These two methods are the only place in this module where the
-### socket refcounting is done, so it's all self-contained.
-
 ##### socket methods
+#
+## These two methods are the only place in this module where the
+## socket refcounting is done, so it's all self-contained.
+#
 # {{{ _watch_transport
 
 # socket listen with refcount.  If socket refcount, increment it. Else
@@ -400,10 +402,11 @@ sub _clear_pending_pdu {
 sub _pending_pdu_count {
     my ($this, $fileno) = @_;
 
-    exists         $this->{_pending_pdu}{$fileno}
-      and      ref $this->{_pending_pdu}{$fileno} eq 'ARRAY'
-        ? scalar @{$this->{_pending_pdu}{$fileno}}
-          : 0
+    # exists         $this->{_pending_pdu}{$fileno}
+    # and
+    ref $this->{_pending_pdu}{$fileno} eq 'ARRAY'
+      ? scalar @{$this->{_pending_pdu}{$fileno}}
+        : 0
 }
 
 # }}} _pending_pdu_count
@@ -447,19 +450,19 @@ sub __dispatch_pdu {
     my @pdu_args = ( $pdu, $timeout, $retries ); # these are the args this state was invoked with.
     my $fileno = $pdu->transport->fileno;
 
-    # schedule or execute
-    # if ($this->_current_pdu($fileno)) {
+    # enqueue or execute
     if ($this->_current_pdu($fileno)) {
+        # this socket is busy. enqueue.
 
         $this->_enqueue_pending_pdu($fileno => \@pdu_args);
         DEBUG_INFO('queued request for [%d] %d requests pending',
                    $fileno, $this->_pending_pdu_count($fileno));
 
     } else {
+        # this socket is free. execute.
 
         DEBUG_INFO('sending request for [%d]', $fileno);
 
-        # $this->_current_pdu($fileno => 1);
         $this->_current_pdu($fileno => $pdu);
 
         VERBOSE and DEBUG_INFO('{--------  SUPER::__send_pdu() for [%d]', $fileno);
@@ -481,7 +484,7 @@ sub __dispatch_pending_pdu {
 
     return if $this->{_abort};
 
-    # mark this fileno active
+    # grab next pdu
     my $next_pdu = $this->_get_next_pending_pdu($fileno);
     return unless ref $next_pdu eq 'ARRAY';
 
@@ -515,6 +518,11 @@ sub __schedule_event {
     #
     # We get this same $event back in cancel(), where we reference
     # $event->[_TIME] as alarm id to deactivate.
+
+    if ($event->[_TIME] <= time) {
+        $this->_callback_execute($event->[_CALLBACK]); # no cooking needed!
+        return;
+    }
 
     my $timeout_id = undef;
 

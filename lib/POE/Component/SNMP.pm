@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '1.02';
+$VERSION = '1.03';
 
 use strict;
 
@@ -22,7 +22,7 @@ sub session {
     # see if there is a localport supplied stash it on our list.
     my ($localport, %arg) = POE::Component::SNMP::_arg_scan(localport => @arg);
 
-    if ($localport) {
+    if (defined $localport) {
 
         if (exists $localport{$localport}) {
             ($session, $error) = (undef, "Address already in use");
@@ -39,7 +39,9 @@ sub session {
         # each session binds to a different local port/socket.  This
         # do..while loop catches potential port conflicts.
         do {
-            $localport = int(rand(65536 - 1025) + 1025 );
+            # pick a port that's not already in use by *us*
+            $localport = int(rand(65536 - 1025) + 1025) while exists $localport{$localport};
+
             ($session, $error) =
               $class->SUPER::session( -nonblocking => 1,
                                       -localport => $localport,
@@ -111,11 +113,7 @@ sub create {
     # }
 
     my ($session, $error);
-    ($session, $error) =
-      POE::Net::SNMP->session( -nonblocking => 1,
-			       -localport => int(rand(65536 - 1025) + 1025 ),
-			       %arg,
-			     );
+    ($session, $error) = POE::Net::SNMP->session( %arg );
 
     croak $error unless $session;
 
@@ -411,7 +409,7 @@ POE::Component::SNMP - L<POE> interface to L<Net::SNMP>
 
   $poe_kernel->run();
 
-  # see the eg/ folder in the distribution archive more samples
+  # see the eg/ folder in the distribution archive for more samples
 
 =head1 DESCRIPTION
 
@@ -576,7 +574,7 @@ request is received, the response NOT be delivered.
 
 =item C<-callback_args>
 
-  # $event receives @args in $_[_ARG1]
+  # $callback_state receives @args in $_[_ARG1]
   $kernel->post( $alias => get => $callback_state =>
                  -callback_args => \@args,
                  -varbindlist   => \@oids );

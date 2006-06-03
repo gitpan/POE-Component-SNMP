@@ -68,7 +68,7 @@ BLOCK:
 
   $poe_kernel->run();
 
-  # see the eg/ folder in the distribution archive more samples
+  # see the eg/ folder in the distribution archive for more samples
 
 }
 
