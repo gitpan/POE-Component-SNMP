@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '1.03';
+$VERSION = '1.04';
 
 use strict;
 
@@ -35,6 +35,8 @@ sub session {
         }
 
     } else {
+
+        $localport = int(rand(65536 - 1025) + 1025); # define it
 
         # each session binds to a different local port/socket.  This
         # do..while loop catches potential port conflicts.
@@ -463,8 +465,9 @@ request-specific data, are passed back to callback events, as
 described in L</CALLBACKS> below, so the callback can determine what
 context the current response (or timeout) is related to.
 
-B<NOTE:> It is a fatal runtime error to attempt to create more than one
-SNMP session with the same C<-alias>.
+B<NOTE:> It is an error to attempt to create more than one SNMP
+session with the same C<-alias>.  It's not fatal unless you run with
+POE's ASSERT_DEFAULT, but it won't work regardless.
 
 =head2 Sockets
 
