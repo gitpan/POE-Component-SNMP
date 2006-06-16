@@ -1,11 +1,10 @@
 package POE::Component::SNMP::Dispatcher;
 
-$VERSION = '1.26';
+$VERSION = '1.27';
 
 use strict;
 
 use base qw/Net::SNMP::Dispatcher/;
-
 
 use POE::Kernel;
 use POE::Session;
@@ -16,10 +15,11 @@ our $INSTANCE;            # Reference to our Singleton object
 
 our $MESSAGE_PROCESSING;  # reference to singled MP object
 
-*DEBUG_INFO = \&Net::SNMP::Dispatcher::DEBUG_INFO;
-# sub DEBUG_INFO() { }
+use constant VERBOSE => 0; # debugging, that is
 
-use constant VERBOSE => 1; # debugging, that is
+*DEBUG_INFO = \&Net::SNMP::Dispatcher::DEBUG_INFO;
+# *DEBUG_INFO = sub {};
+# sub DEBUG_INFO() { }
 
 sub _ACTIVE()   { 0 }     # State of the event ( not used )
 sub _TIME()     { 1 }     # Execution time
@@ -196,6 +196,7 @@ sub register {
     DEBUG_INFO('register on [%d] %s', $transport->fileno, VERBOSE ? dump_args([ $callback ]) : '');
 
     if (ref ($transport = $this->$SUPER_register($transport, $callback))) {
+    # if (ref ($transport = $this->SUPER($transport, $callback))) {
 
         POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport);
 
@@ -221,6 +222,7 @@ sub deregister {
                VERBOSE ? dump_args([ $transport ]) : '');
 
     if (ref ($transport = $this->$SUPER_deregister($transport))) {
+    # if (ref ($transport = $this->SUPER($transport))) {
         $this->_unwatch_transport($transport);
     }
 
@@ -431,8 +433,14 @@ sub _current_callback {
 
 # {{{ _start and _stop
 
-sub _start { $_[KERNEL]->alias_set('_poe_component_snmp_dispatcher')    }
-sub _stop  { $_[KERNEL]->alias_remove('_poe_component_snmp_dispatcher') }
+sub _start {
+    $_[KERNEL]->alias_set('_poe_component_snmp_dispatcher')
+}
+
+sub _stop  {
+    $_[KERNEL]->alias_remove('_poe_component_snmp_dispatcher');
+    undef $INSTANCE;
+}
 
 # }}} _start and _stop
 # {{{ __dispatch_pdu

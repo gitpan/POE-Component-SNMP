@@ -320,3 +320,18 @@ Revision history for Perl extension POE::Component::SNMP.
 1.04 Tue Jun  6 14:35:30 PDT 2006
         - my fix was broken.  fixed for real this time.  thanks to
           Curtis AGAIN!
+
+1.05
+
+        - turned off $VERBOSE in Dispatcher.pm... even when debug
+          messages weren't being shown, VERBOSE added some extra
+          processing that was unnecessary (unless, of course, you're
+          developing PoCo::SNMP :).
+
+        - my assumptions about having a singleton dispatcher session
+          fell apart when a user tried to run the POE kernel more than
+          once... after the first run, the session is destroyed,
+          causing subsequent runs to fail.  added destructor logic to
+          the dispatcher's _stop event, and constructor logic to the
+          main component's create() method.  Now it functions properly
+          if run more than once.  Thanks to Nigel Bowden for the spot.

@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '1.04';
+$VERSION = '1.05';
 
 use strict;
 
@@ -103,6 +103,11 @@ sub create {
     # die unless we get a hostname
     unless ((_arg_scan(hostname => @arg))[0]) {
         croak "hostname parameter required";
+    }
+
+    # make sure we have a dispatcher!
+    if (!defined($DISPATCHER = $Net::SNMP::DISPATCHER = POE::Component::SNMP::Dispatcher->instance)) {
+        die('FATAL: Failed to create Dispatcher instance');
     }
 
     ### This made perfect sense, until I remembered that SNMPv3
