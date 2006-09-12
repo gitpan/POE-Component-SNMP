@@ -321,11 +321,10 @@ Revision history for Perl extension POE::Component::SNMP.
         - my fix was broken.  fixed for real this time.  thanks to
           Curtis AGAIN!
 
-1.05
-
+1.05 Fri Jun 16 13:00:40 PDT 2006
         - turned off $VERBOSE in Dispatcher.pm... even when debug
-          messages weren't being shown, VERBOSE added some extra
-          processing that was unnecessary (unless, of course, you're
+          messages weren't being shown, VERBOSE adds some extra
+          processing that is unnecessary (unless, of course, you're
           developing PoCo::SNMP :).
 
         - my assumptions about having a singleton dispatcher session
@@ -335,3 +334,33 @@ Revision history for Perl extension POE::Component::SNMP.
           the dispatcher's _stop event, and constructor logic to the
           main component's create() method.  Now it functions properly
           if run more than once.  Thanks to Nigel Bowden for the spot.
+
+1.06 Tue Sep 12 00:43:42 PDT 2006
+        - finish() behavior was broken... calling finish() for one
+          session finished (well, broke) the entire component,
+          PERMANENTLY.  oops.  removed all references to the internal
+          "_abort" flag.  now the caveat is, if you finish() using
+          POE::Kernel->call() in the same event that you've made
+          requests, the program will hang because there will be stray
+          events.  use post(), or yield() instead.  Thanks to Kenny
+          Flegal for the spot *and* the test case.
+
+	- cleaned up the -localport logic a little bit... added a
+          do..while() where I had a while() plus the same line of code
+          twice.
+
+        - added a 'trap2c' method a version or two ago... but forgot
+          to add it to the states list in the constructor for the
+          PoCo::SNMP session.  This meant that anybody trying to use
+          it would silently fail.  oops.  same for 'callback_args'.
+          oops twice.
+
+        - did a little bit of refactoring in Dispatcher.pm to make
+          identifiers "tell the story" a little better, cuz on a
+          re-read of the logic it wasn't "instantly clear" what I'd
+          been trying to do. __dispatch_pdu and __dispatch_pending_pdu
+          read more clearly now.
+
+        - made my debugging functions a little better at no-op'ing
+          when not debugging, resulting in a small improvement in
+          "make test" times.

@@ -1,6 +1,6 @@
 package POE::Component::SNMP;
 
-$VERSION = '1.05';
+$VERSION = '1.06';
 
 use strict;
 
@@ -36,19 +36,21 @@ sub session {
 
     } else {
 
-        $localport = int(rand(65536 - 1025) + 1025); # define it
-
         # each session binds to a different local port/socket.  This
         # do..while loop catches potential port conflicts.
         do {
+
             # pick a port that's not already in use by *us*
-            $localport = int(rand(65536 - 1025) + 1025) while exists $localport{$localport};
+            do {
+		$localport = int(rand(65536 - 1025) + 1025)
+	    } while (exists $localport{$localport});
 
             ($session, $error) =
               $class->SUPER::session( -nonblocking => 1,
                                       -localport => $localport,
                                       %arg,
                                     );
+
         } while ($error =~ /^bind..:/);
 
     }
@@ -133,10 +135,12 @@ sub create {
                                              walk          => \&snmp_walk,
                                              getbulk       => \&snmp_getbulk,
                                              trap          => \&snmp_trap,
+                                             trap2c        => \&snmp_trap2c,
                                              inform        => \&snmp_inform,
                                              set           => \&snmp_set,
 
                                              errmsg        => \&snmp_errmsg,
+					     callback_args => \&snmp_callback_args,
                                            },
                           args => [
                                    $alias,   # component alias
@@ -179,6 +183,8 @@ sub close_snmp_session {
     # will go away now.
     $kernel->alias_remove($_) for $kernel->alias_list( $session );
 
+
+    # use Data::Dumper; print Dumper $snmp_session;
     # now the only thing keeping this session alive are any postback
     # references that have yet to be delivered.
 }
@@ -231,18 +237,8 @@ sub snmp_request {
             @snmp_args = _dwim_set_request_args(@snmp_args);
         }
 
+	# this $postback is a closure.  it goes away after firing.
         my $postback = $sender->postback($state_name => @postback_args);
-        if (0) {
-        my $callback = sub { $postback->( ( defined ($_[0]->var_bind_list) ?
-                                            $_[0]->var_bind_list : $_[0]->error
-                                          ),
-                                          @callback_args,
-                                        );
-                         };
-
-        my $cb_ref = [ $callback ];
-        }
-
         $ok = $heap->{snmp_session}->$method( @snmp_args,
                                               -callback =>
                                               [ sub { $postback->( ( defined ($_[0]->var_bind_list) ?
@@ -255,6 +251,7 @@ sub snmp_request {
                                             );
 
     }
+
 
     unless ($ok) {
         $kernel->post( $sender => $state_name => \@postback_args,
@@ -288,9 +285,9 @@ sub snmp_callback_args {
     $heap->{callback_args} = \@args;
 }
 
-# scan an array for a value matching qw/ -key key Key KEY / and fetch
-# the *next* element, the "value". return the value and the arg list
-# minus the key/value pair.
+# scan an array for a key matching qw/ -key key Key KEY / and fetch
+# the value. return the value and the remaining arg list minus the
+# key/value pair.
 sub _arg_scan {
     my ($key, @arg) = @_;
 
@@ -308,7 +305,8 @@ sub _arg_scan {
     ($value, @arg);
 }
 
-# change string constant like 'OCTET_STRING' to a number
+# change string constant like 'OCTET_STRING' to a number by calling
+# OCTET_STRING()
 #
 # For a set request, the 2nd item of the varbindlist should be a
 # string constant indicating the value type.  This block does a lookup
@@ -317,12 +315,10 @@ sub _dwim_set_request_args {
     my %snmp_args = @_;
 
     # extract the varbindlist from args
-    my $vbl = exists $snmp_args{varbindlist}
-      ? $snmp_args{varbindlist}
-        : $snmp_args{-varbindlist};
+    my ($vbl) = _arg_scan(varbindlist => @_);
 
-    # make $type refer to the string constant
-    my $type = ref($vbl) eq 'ARRAY' ? \$vbl->[1] : \'foo';
+    # make $type refer to the string in $vbl->[1]
+    my $type = ref($vbl) eq 'ARRAY' ? \$vbl->[1] : \ 'foo';
 
     # if Net::SNMP::Message knows about it, use it to replace the
     # string with its numeric equivalent, e.g. 'OCTET_STRING' => 4
@@ -621,7 +617,7 @@ Previously, errors were returned in C<$_[ARG1][1]>.
 
 =head1 AUTHOR
 
-Adopted and maintained by Rob Bloodgood E<lt>rdb@cpan.org<gt>
+Adopted and maintained by Rob Bloodgood E<lt>rdb@cpan.orgE<gt>
 
 Originally by Todd Caine E<lt>tcaine@eli.netE<gt>
 

@@ -1,6 +1,6 @@
 package POE::Component::SNMP::Dispatcher;
 
-$VERSION = '1.27';
+$VERSION = '1.28';
 
 use strict;
 
@@ -11,9 +11,9 @@ use POE::Session;
 
 use Time::HiRes qw/time/;
 
-our $INSTANCE;            # Reference to our Singleton object
+our $INSTANCE;            # reference to our Singleton object
 
-our $MESSAGE_PROCESSING;  # reference to singled MP object
+our $MESSAGE_PROCESSING;  # reference to single MP object
 
 use constant VERBOSE => 0; # debugging, that is
 
@@ -83,8 +83,6 @@ sub send_pdu {
 
     DEBUG_INFO('%s', dump_args( [ $pdu, $delay ] ));
 
-    # use Data::Dumper; print Dumper($pdu); print dump_args([ [ $pdu->callback ], {} ]), "\n";
-
     local *Net::SNMP::Dispatcher::_send_pdu = \&_send_pdu;
     VERBOSE and DEBUG_INFO('{--------  SUPER::send_pdu()');
     my $retval = $this->SUPER::send_pdu($pdu, $delay);
@@ -139,9 +137,9 @@ sub schedule {
         DEBUG_INFO(' --------} callback complete [%d]', $fileno);
      } else {
          DEBUG_INFO("%0.1f seconds [%d] %s", $event->[_DELAY], $fileno,
-                   VERBOSE ? dump_args( $event->[_CALLBACK] ) : '');
+		    VERBOSE ? dump_args( $event->[_CALLBACK] ) : '');
 
-        POE::Kernel->post(_poe_component_snmp_dispatcher => __schedule_event => $event);
+	 POE::Kernel->post(_poe_component_snmp_dispatcher => __schedule_event => $event);
      }
 
      $event;
@@ -196,7 +194,6 @@ sub register {
     DEBUG_INFO('register on [%d] %s', $transport->fileno, VERBOSE ? dump_args([ $callback ]) : '');
 
     if (ref ($transport = $this->$SUPER_register($transport, $callback))) {
-    # if (ref ($transport = $this->SUPER($transport, $callback))) {
 
         POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport);
 
@@ -222,7 +219,6 @@ sub deregister {
                VERBOSE ? dump_args([ $transport ]) : '');
 
     if (ref ($transport = $this->$SUPER_deregister($transport))) {
-    # if (ref ($transport = $this->SUPER($transport))) {
         $this->_unwatch_transport($transport);
     }
 
@@ -416,7 +412,8 @@ sub _pending_pdu_count {
 
 # {{{ _current_callback
 
-# fetch the "current" callback for the fileno
+# fetch the "current" callback for the fileno corresponding to the
+# socket we just saw a response on out of Net::SNMP::Dispatcher.
 sub _current_callback {
     my ($this, $fileno) = @_;
 
@@ -454,8 +451,12 @@ sub _stop  {
 #
 # this event is invoked by _send_pdu()
 sub __dispatch_pdu {
-    my ($this, $heap, $pdu, $timeout, $retries) = @_[OBJECT, HEAP, ARG0..$#_];
-    my @pdu_args = ( $pdu, $timeout, $retries ); # these are the args this state was invoked with.
+    my ($this, $heap, @pdu_args) = @_[OBJECT, HEAP, ARG0..$#_];
+
+    # these are the args this state was invoked with:
+    # @pdu_args = ( $pdu, $timeout, $retries );
+
+    my $pdu = $pdu_args[0];
     my $fileno = $pdu->transport->fileno;
 
     # enqueue or execute
@@ -490,20 +491,21 @@ sub __dispatch_pdu {
 sub __dispatch_pending_pdu {
     my ($this, $heap, $fileno) = @_[OBJECT, HEAP, ARG0];
 
-    return if $this->{_abort};
+    # grab next pdu args
+    my $next_pdu_args = $this->_get_next_pending_pdu($fileno);
+    return unless ref $next_pdu_args eq 'ARRAY';
 
-    # grab next pdu
-    my $next_pdu = $this->_get_next_pending_pdu($fileno);
-    return unless ref $next_pdu eq 'ARRAY';
+    # we stashed [ $pdu, $timeout, $retries ]
+    my $pdu = $next_pdu_args->[0];
 
     # mark this request current
-    $this->_current_pdu($fileno => $next_pdu->[0]);
+    $this->_current_pdu($fileno => $pdu);
 
     DEBUG_INFO('sending (queued) request on [%d] %d remaining',
                $fileno, $this->_pending_pdu_count($fileno));
 
     VERBOSE and DEBUG_INFO('{--------  SUPER::__send_pdu() for [%d]', $fileno);
-    $this->SUPER::_send_pdu( @{ $next_pdu } );
+    $this->SUPER::_send_pdu( @{ $next_pdu_args } );
     VERBOSE and DEBUG_INFO(' --------} SUPER::__send_pdu() for [%d]', $fileno );
 }
 
@@ -513,8 +515,6 @@ sub __dispatch_pending_pdu {
 # this event is invoked by schedule() / _event_insert()
 sub __schedule_event {
     my ($this, $kernel, $event) = @_[ OBJECT, KERNEL, ARG0 ];
-
-    return if $this->{_abort};
 
     # $event->[_ACTIVE] is always true for us, and we ignore it.
     #
@@ -577,8 +577,6 @@ sub __listen {
     my ($this, $kernel, $heap, $transport, $callback) = @_[OBJECT, KERNEL, HEAP, ARG0, ARG1];
     my $fileno = $transport->fileno;
     # we'll fetch the callback directly from $this in __socket_callback
-
-    return if $this->{_abort};
 
     DEBUG_INFO('listening on [%d]', $fileno);
     $this->_watch_transport($transport);
@@ -658,8 +656,6 @@ sub __clear_pending {
 
     }
 
-    $this->{_abort}++;
-
     DEBUG_INFO('done');
 }
 
@@ -699,14 +695,16 @@ if (0) {
 # get sub_fullname from Sub::Identify if it's present.  If it's not,
 # generate our own, simple version.
 eval { require Sub::Identify };
-# eval { die };
-if ($@) {
+
+if ($@ or not VERBOSE
+   ) {
     eval { sub sub_fullname { ref shift } }
 } else {
     Sub::Identify->import('sub_fullname');
 }
 
 sub dump_args {
+    return unless VERBOSE;
     my @out;
     my $first = 0;
     for (@{$_[0]}) {

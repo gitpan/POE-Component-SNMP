@@ -26,6 +26,7 @@ POE::Session->create
     _start      => \&snmp_get_tests,
     _stop       => \&stop_session,
     snmp_get_cb => \&snmp_get_cb,
+    snmp_finish => \&snmp_finish,
   },
 );
 
@@ -72,10 +73,18 @@ sub snmp_get_cb {
 	# processing the result.  *before* we get here, we have
 	# already transmitted the next request!
 
-        $kernel->call( snmp => 'finish' );
-        # $kernel->post( snmp => 'finish' );
-        get_seen($heap);
+	$kernel->yield('snmp_finish');
     }
+
+}
+
+sub snmp_finish {
+    my ($kernel, $heap, $aref) = @_[KERNEL, HEAP, ARG1];
+
+
+    $kernel->call( snmp => 'finish' );
+    # $kernel->post( snmp => 'finish' );
+    get_seen($heap);
 
     if (check_done($heap)) {
 	# $kernel->post( snmp => 'finish' );
