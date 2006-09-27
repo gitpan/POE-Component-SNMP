@@ -15,6 +15,7 @@ t/40_snmp_set.t
 t/50_snmp_getbulk.t
 t/60_errors.t
 t/70_multi.t
+t/71_multi_autherror.t
 t/75_start_stop.t
 t/80_finish_call.t
 t/85_finish_post.t

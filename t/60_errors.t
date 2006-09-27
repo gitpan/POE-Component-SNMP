@@ -66,18 +66,22 @@ sub snmp_run_tests {
     ok $kernel->alias_resolve('snmp'), "normal session create";
 
   SKIP: {
-	skip "dupe session check not safely trappable", 2;
-        #  if exists $ENV{POE_ASSERT_DEFAULT}; # and $POE::VERSION <= 0.34;
+	skip "dupe session check not safely trappable", 2
+	; #  if $POE::VERSION <= 0.37 and POE::Kernel::ASSERT_DEFAULT;
+	#  if exists $ENV{POE_ASSERT_DEFAULT}; # and $POE::VERSION <= 0.34;
 
-        eval {
-	    POE::Component::SNMP->create( alias     => 'snmp',
-					  hostname  => $CONF->{'hostname'},
-					  community => $CONF->{'community'},
-					  timeout   => 2,
-					);
-        };
+	eval
+	  {
+	      POE::Component::SNMP->create( alias     => 'snmp',
+					    hostname  => $CONF->{'hostname'},
+					    community => $CONF->{'community'},
+					    timeout   => 2,
+					  );
+	  };
 
-        ok $@ =~ /'snmp' already exists|'snmp' is in use by another session/, "duplicate alias is fatal";
+	warn $@;
+
+	ok $@ =~ /'snmp' already exists|'snmp' is in use by another session/, "duplicate alias is fatal";
 	ok $kernel->alias_resolve('snmp'), "existing session not affected";
 
     }
@@ -91,7 +95,7 @@ sub snmp_run_tests {
 					  hostname  => $CONF->{'hostname'},
 					  community => $CONF->{'community'},
 					  timeout   => 2,
-					  -localport => $LOCALPORT,
+					  localport => $LOCALPORT,
 					);
 	};
 

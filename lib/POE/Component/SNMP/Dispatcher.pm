@@ -15,16 +15,16 @@ our $INSTANCE;            # reference to our Singleton object
 
 our $MESSAGE_PROCESSING;  # reference to single MP object
 
-use constant VERBOSE => 0; # debugging, that is
+use constant VERBOSE => 1; # debugging, that is
 
 *DEBUG_INFO = \&Net::SNMP::Dispatcher::DEBUG_INFO;
-# *DEBUG_INFO = sub {};
+# *DEBUG_INFO = sub () {};
 # sub DEBUG_INFO() { }
 
 sub _ACTIVE()   { 0 }     # State of the event ( not used )
 sub _TIME()     { 1 }     # Execution time
 sub _CALLBACK() { 2 }     # Callback reference
-sub _DELAY()    { 3 }     # Callback reference
+sub _DELAY()    { 3 }     # Delay, in seconds
 
 # {{{ SUBCLASSED METHODS
 
@@ -84,10 +84,12 @@ sub send_pdu {
     DEBUG_INFO('%s', dump_args( [ $pdu, $delay ] ));
 
     local *Net::SNMP::Dispatcher::_send_pdu = \&_send_pdu;
+
     VERBOSE and DEBUG_INFO('{--------  SUPER::send_pdu()');
     my $retval = $this->SUPER::send_pdu($pdu, $delay);
     VERBOSE and DEBUG_INFO(' --------} SUPER::send_pdu()');
-    return $retval;
+
+    $retval;
 }
 
 # _send_pdu() tosses requests into POE space at the __dispatch_pdu
@@ -101,6 +103,9 @@ sub _send_pdu {
 
     POE::Kernel->post(_poe_component_snmp_dispatcher => __dispatch_pdu =>
                       $pdu, $timeout, $retries);
+
+    # breaks
+    # POE::Kernel->yield(__dispatch_pdu => $pdu, $timeout, $retries);
 
     1;
 }
@@ -125,6 +130,7 @@ sub schedule {
     # cook the args like Net::SNMP::schedule() does for _event_insert()
     my $event  = [ $this->{_active}, $time + $when, $this->_callback_create($callback), $when ];
 
+    # $event->[_CALLBACK]->[1] is a $pdu object
     my $fileno = $event->[_CALLBACK]->[1]->transport->fileno;
     if ($event->[_TIME] <= $time) {
         # run the callback NOW, instead of invoking __invoke_callback.  saves a POE call().
@@ -132,14 +138,19 @@ sub schedule {
         DEBUG_INFO('{--------  invoking callback [%d] %s', $fileno,
                    VERBOSE ? dump_args( $event->[_CALLBACK] ) : '');
 
-        $this->_callback_execute($event->[_CALLBACK]); # no cooking needed!
+        $this->_callback_execute($event->[_CALLBACK]); # no parameter cooking needed!
 
         DEBUG_INFO(' --------} callback complete [%d]', $fileno);
      } else {
          DEBUG_INFO("%0.1f seconds [%d] %s", $event->[_DELAY], $fileno,
 		    VERBOSE ? dump_args( $event->[_CALLBACK] ) : '');
 
-	 POE::Kernel->post(_poe_component_snmp_dispatcher => __schedule_event => $event);
+         # This call breaks down to $kernel->alarm_set($event)
+         POE::Kernel->call(_poe_component_snmp_dispatcher => __schedule_event => $event);
+
+	 # POE::Kernel->post(_poe_component_snmp_dispatcher => __schedule_event => $event);
+         # breaks
+	 # POE::Kernel->yield(__schedule_event => $event);
      }
 
      $event;
@@ -159,7 +170,7 @@ sub cancel {
     DEBUG_INFO('remove alarm id %d', $event->[_TIME]);
     POE::Kernel->alarm_remove($event->[_TIME]);
 
-    return ! ! $this->_pending_pdu_count(); # boolean: are there entries are left
+    return ! ! $this->_pending_pdu_count(); # boolean: are there entries are left?
 }
 
 # }}} schedule and cancel
@@ -196,6 +207,12 @@ sub register {
     if (ref ($transport = $this->$SUPER_register($transport, $callback))) {
 
         POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport);
+        # POE::Kernel->call(_poe_component_snmp_dispatcher => __listen => $transport);
+
+        # we would use this version if we were stashing the callback
+        # with the "got data" event, but in fact we retrieve it
+        # directly from the SNMP object.  I can't make up my mind
+        # which is cleaner in terms of encapsulation.
 
         # POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport,
         #                 [ $this->_callback_create($callback), $transport ]);
@@ -227,7 +244,7 @@ sub deregister {
 
     if ($this->_pending_pdu_count($fileno)) {
         # run next pending
-        POE::Kernel->post(_poe_component_snmp_dispatcher => __dispatch_pending_pdu => $fileno);
+        POE::Kernel->yield(__dispatch_pending_pdu => $fileno);
     }
 
     $transport;
@@ -528,13 +545,11 @@ sub __schedule_event {
     # $event->[_TIME] as alarm id to deactivate.
 
     if ($event->[_TIME] <= time) {
-        $this->_callback_execute($event->[_CALLBACK]); # no cooking needed!
+        $this->_callback_execute($event->[_CALLBACK]); # no parameter cooking needed!
         return;
     }
 
-    my $timeout_id = undef;
-
-    $timeout_id = $kernel->alarm_set(__invoke_callback => $event->[_TIME], $event->[_CALLBACK]);
+    my $timeout_id = $kernel->alarm_set(__invoke_callback => $event->[_TIME], $event->[_CALLBACK]);
 
     # stash the alarm id.  since $event is a reference, this
     # assignment is "global".
@@ -598,7 +613,8 @@ sub __socket_callback {
     DEBUG_INFO('{--------  invoking callback for [%d] %s',
 	       $fileno, dump_args($this->_current_callback($fileno)));
 
-    $this->_callback_execute( @{ $this->_current_callback($fileno) } ); # the extra argument is harmless
+    $this->_callback_execute( @{ $this->_current_callback($fileno) } );
+    # the extra argument contained in the callback is harmless
 
     DEBUG_INFO(' --------} callback complete for [%d]', $fileno);
 }
@@ -619,13 +635,7 @@ sub __clear_pending {
 
     DEBUG_INFO('start');
 
-    # print Data::Dumper::Dumper($this);
-    # use Data::Dumper; print Data::Dumper::Dumper($session);
-    # $session->{_callback}[0]->($session);
-
-    my $IMMEDIATE_SHUTDOWN = 1; # let the last pending request deliver itself or just quit
-
-    my ($fileno) = $session->transport->socket->fileno;
+    my $fileno = $session->transport->socket->fileno;
 
     DEBUG_INFO('clearing %d pending requests', $this->_pending_pdu_count($fileno));
     $this->_clear_pending_pdu($fileno);
@@ -644,8 +654,8 @@ sub __clear_pending {
         # stop listening
         $this->deregister($pdu->transport);
 
-        # cancel timeout
-        #
+        # cancel pending timeout
+
         # Fetch the last cached reference held to our request (and its
         # postback) held outside our own codespace...
         if (defined (my $request = $MESSAGE_PROCESSING->msg_handle_delete($pdu->request_id))) {

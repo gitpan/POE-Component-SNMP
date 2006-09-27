@@ -1,4 +1,4 @@
-Revision history for Perl extension POE::Component::SNMP.
+Revision history for Perl extension POE::Component::SNMP. -*-text-*-
 
 0.01  Mon Apr 21 13:28:31 2003
         - original version; created by h2xs 1.22 with options
@@ -364,3 +364,28 @@ Revision history for Perl extension POE::Component::SNMP.
         - made my debugging functions a little better at no-op'ing
           when not debugging, resulting in a small improvement in
           "make test" times.
+
+1.07 Wed Sep 27 16:30:17 PDT 2006
+        - added 71_multi_autherror.t to test SNMP v2c authentication
+          errors.  Net::SNMP returns 'no response'.
+
+        - changed the call to POE::Kernel->post() to yield() in
+          deregister(), saving the overhead of resolving the session
+          since it is always called within the Dispatcher session.
+
+        - also changed register() and schedule() in the Dispatcher to
+          use POE::Kernel->call() instead of post(), because they
+          doesn't hurt concurrency there, all they do is select_read()
+          or alarm_set() then return.
+
+        - removed an extraneous localport() accessor from SNMP.pm.
+
+        - re-enabled the "duplicate session" check in the constructor
+          because POE now correctly allows the check under
+          ASSERT_DEFAULT.
+
+        - Finally added folds to SNMP.pm.
+
+        - Minor changes to the documentation.
+
+        - Removed an unused variable from __clear_pending().
