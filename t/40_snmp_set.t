@@ -1,8 +1,6 @@
 
 use Test::More;
 
-BEGIN { use_ok('POE::Component::SNMP') };
-
 use POE qw/Component::SNMP/;
 
 use lib qw(t);

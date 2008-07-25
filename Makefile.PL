@@ -5,11 +5,12 @@ my $CONFIG_MODE = 0600;
 my $CONFIG_FILE = "config.cache";
 
 WriteMakefile(
-    'NAME'		=> 'POE::Component::SNMP',
-    'VERSION_FROM'	=> 'lib/POE/Component/SNMP.pm',
-    'PREREQ_PM'		=> {'POE' => 0, 'Net::SNMP' => 0, 'Time::HiRes' => 0},
-    ($] >= 5.005 ?
-      (AUTHOR     => 'Rob Bloodgood <rob@exitexchange.com>') : ()),
+    NAME		=> 'POE::Component::SNMP',
+    VERSION_FROM	=> 'lib/POE/Component/SNMP.pm',
+    (LICENSE            => 'perl') x ($ExtUtils::MakeMaker::VERSION >= 6.31),
+
+    PREREQ_PM		=> { 'POE' => 0.31, 'Net::SNMP' => 4.0, 'Time::HiRes' => 0 },
+    (AUTHOR     => 'Rob Bloodgood <rob@exitexchange.com>') x ($] >= 5.005),
 );
 
 exit 0 if -e $CONFIG_FILE;

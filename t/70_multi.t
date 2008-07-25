@@ -1,9 +1,8 @@
 use Test::More; # qw/no_plan/;
 use strict;
 
-BEGIN {
-    use_ok POE => qw/Component::SNMP/;
-}
+use EV;
+use POE qw/Component::SNMP/;
 
 use lib qw(t);
 use TestPCS;
@@ -11,6 +10,7 @@ use TestPCS;
 my $CONF = do "config.cache";
 
 if ( $CONF->{skip_all_tests} ) {
+    POE::Kernel->run();
     plan skip_all => 'No SNMP data specified.';
 } else {
     if (1) {

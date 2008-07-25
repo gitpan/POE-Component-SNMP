@@ -2,7 +2,7 @@ package POE::Component::SNMP;
 
 use strict;
 
-our $VERSION = '1.07';
+our $VERSION = '1.10';
 
 package POE::Net::SNMP;
 
@@ -49,7 +49,7 @@ sub session {
                                       %arg,
                                     );
 
-        } while ($error =~ /^bind..:/);
+        } while ($error =~ /bind|already/);
 
     }
 
@@ -102,7 +102,6 @@ sub create {
     my @arg = @_;
     my %arg; # = @_;
 
-    # my $alias = delete $arg{alias} || delete $arg{Alias} || delete $arg{-alias} || 'snmp';
     my $alias;
 
     # we don't do alias dupe checks anymore, we leave that to POE
@@ -122,6 +121,10 @@ sub create {
     my ($session, $error);
     ($session, $error) = POE::Net::SNMP->session( %arg );
 
+    # use Data::Dumper; print Dumper([ $session->transport, $Net::SNMP::Transport::SOCKETS ]);
+
+    # delete $Net::SNMP::Transport::SOCKETS->{$session->transport->{_sock_name}};
+
     croak $error unless $session;
 
     POE::Session->create( inline_states => { _start        => \&start_snmp_session,
@@ -132,6 +135,7 @@ sub create {
                                              getnext       => \&snmp_getnext,
                                              walk          => \&snmp_walk,
                                              getbulk       => \&snmp_getbulk,
+                                             getentries    => \&snmp_getentries,
                                              trap          => \&snmp_trap,
                                              trap2c        => \&snmp_trap2c,
                                              inform        => \&snmp_inform,
@@ -154,9 +158,8 @@ sub start_snmp_session {
     my ($kernel, $heap, $alias, $session) = @_[KERNEL, HEAP, ARG0..$#_];
 
     # make sure we aren't duplicating component aliases!
-    # if ($kernel->alias_set($alias)) {
-    if ( ! ($POE::VERSION < 0.38 and POE::Kernel::ASSERT_DEFAULT)
-         and defined $kernel->alias_resolve($alias)
+    if ( ! ($POE::VERSION <= 0.95 and POE::Kernel::ASSERT_DATA) and
+         defined $kernel->alias_resolve($alias)
        ) {
         local $Carp::CarpLevel = 4; # munge up to the right level of code
 
@@ -208,12 +211,13 @@ sub end_snmp_session {
 
 # {{{ requests
 
-sub snmp_get     { snmp_request( get_request      => @_ ) }
-sub snmp_getnext { snmp_request( get_next_request => @_ ) }
-sub snmp_walk    { snmp_request( get_table        => @_ ) }
-sub snmp_getbulk { snmp_request( get_bulk_request => @_ ) }
-sub snmp_inform  { snmp_request( inform_request   => @_ ) }
-sub snmp_set     { snmp_request( set_request      => @_ ) }
+sub snmp_get        { snmp_request( get_request      => @_ ) }
+sub snmp_getnext    { snmp_request( get_next_request => @_ ) }
+sub snmp_walk       { snmp_request( get_table        => @_ ) }
+sub snmp_getbulk    { snmp_request( get_bulk_request => @_ ) }
+sub snmp_getentries { snmp_request( get_entries      => @_ ) }
+sub snmp_inform     { snmp_request( inform_request   => @_ ) }
+sub snmp_set        { snmp_request( set_request      => @_ ) }
 
 # }}} requests
 # {{{ snmp_request
@@ -222,7 +226,7 @@ sub snmp_request {
     # first parameter is the Net::SNMP method to call
     my $method = shift;
     # then standard POE args
-    my ($kernel, $heap, $sender, $state_name, @snmp_args) = @_[KERNEL, HEAP, SENDER, ARG0..$#_];
+    my ($kernel, $heap, $sender, $target_state, @snmp_args) = @_[KERNEL, HEAP, SENDER, ARG0..$#_];
 
     # extract the PoCo::SNMP request method called, for diagnostics
     # 'POE::Component::SNMP::snmp_get' => 'get'
@@ -237,7 +241,7 @@ sub snmp_request {
         if (ref $callback_args eq 'ARRAY') {
             @callback_args = @$callback_args;
         } else {
-            $ok;
+            $ok = 0;
             $heap->{snmp_session}->_error("Argument to -callback_args must be an arrayref");
             @callback_args = ($callback_args); # stash the "bad" argument to return with the error
         }
@@ -254,7 +258,7 @@ sub snmp_request {
         }
 
 	# this $postback is a closure.  it goes away after firing.
-        my $postback = $sender->postback($state_name => @postback_args);
+        my $postback = $sender->postback($target_state => @postback_args);
         $ok = $heap->{snmp_session}->$method( @snmp_args,
                                               -callback =>
                                               [ sub { $postback->( ( defined ($_[0]->var_bind_list) ?
@@ -270,7 +274,7 @@ sub snmp_request {
 
 
     unless ($ok) {
-        $kernel->post( $sender => $state_name => \@postback_args,
+        $kernel->post( $sender => $target_state => \@postback_args,
                        [ $heap->{snmp_session}->error,
                          @callback_args,
                        ]
@@ -292,7 +296,7 @@ sub snmp_trap {
 # }}} snmp_trap
 # {{{ snmp_trap2c
 
-# invoke with: $error = $kernel->call( $alias => error );
+# invoke with: $error = $kernel->call( $alias => trap2c );
 sub snmp_trap2c {
     my ($kernel, $heap, @snmp_args) = @_[KERNEL, HEAP, ARG0..$#_];
     $heap->{snmp_session}->snmpv2_trap( @snmp_args );
@@ -332,7 +336,7 @@ sub _arg_scan {
         if ($arg[$_] =~ /^-?$key$/i) {
             $value = $arg[$_ + 1];
 
-            # splice out the cb args from @arg:
+            # splice out the key and value from @arg:
             splice @arg, $_, 2;
         }
     }
@@ -499,6 +503,16 @@ In order to access multiple SNMP hosts simultaneously, you must create
 a separate instance of the component for each host, by giving each
 component a different C<-alias> parameter in the constructor.
 
+Multiple requests to a particular instance are processed in FIFO
+order, I<including retries> (C<-retries> defaults to 1).
+This means that if you have multiple pending responses, and one
+automatically attempts retry for whatever reason, the retry request
+will "go to the end of the line" behind any other pending requests.
+
+There is no limit to how many simultaneous instances can be processing
+requests.  It is possible to create multiple instances for the same
+host.
+
 The C<-alias> and C<-hostname> parameters, as well as additional
 request-specific data, are passed back to callback events, as
 described in L</CALLBACKS> below, so the callback can determine what
@@ -513,19 +527,19 @@ with ASSERT_USAGE, but it won't work regardless.
 By default, L<Net::SNMP> creates a single socket per I<network
 interface>.  This is possible because the L<Net::SNMP> event loop
 processes all SNMP requests in FIFO order and is thus able to reuse
-the same socket for each request; however, it is not asynchronous.
-Since we can only watch one connection per socket at a time, this
-creates a conflict if you want to contact more than one remote host
-simultaneously.  The workaround used by the module is to create each
-socket using a different randomly generated value for the
-C<-localport> parameter, specifying a unique local UDP port for each
-instance of the component.  This could potentially interfere with
-remote communications if your local firewall policy requires a
-specific source port for outgoing SNMP requests (as noted by David
-Town, the author of L<Net::SNMP>).  In this situation, you can supply
-an explicit C<-localport> argument to the constructor, but remember
-that every active session requires its own I<unique> local port per
-session/host, per interface.
+the same socket for each request, regardless of its destination;
+however, it is not multiplexed.  Since we can only watch one
+connection per socket at a time, this creates a conflict if you want
+to contact more than one remote host simultaneously.  The workaround
+used by the module is to create each socket using a different randomly
+generated value for the C<-localport> parameter, specifying a unique
+local UDP port for each instance of the component.  This could
+potentially interfere with remote communications if your local
+firewall policy requires a specific source port for outgoing SNMP
+requests (as noted by David Town, the author of L<Net::SNMP>).  In
+this situation, you can supply an explicit C<-localport> argument to
+the constructor, but remember that every active session requires its
+own I<unique> local port per session/host, per interface.
 
 =head1 REQUESTS
 
@@ -538,31 +552,66 @@ Requests take the form:
   $poe_kernel->post( $session_alias => $request =>
                      $callback_state => @snmp_args );
 
-See the SYNOPSIS for specific examples.
+See the L</SYNOPSIS> and the following per-request specifics for
+examples.
 
 =over 4
 
 =item C<get>
 
+  $poe_kernel->post( snmp => get => parse_get_results =>
+                                    #  system.sysUptime
+                     varbindlist => [ '.1.3.6.1.2.1.1.3.0' ] );
+
 See L<Net::SNMP::get_request()|Net::SNMP/get_request() - send a SNMP get-request to the remote agent>.
 
 =item C<getnext>
+
+  $poe_kernel->post( snmp => get => parse_getnext_results =>
+                                    #  system.*
+                     varbindlist => [ '.1.3.6.1.2.1.1.1.0',
+                                      '.1.3.6.1.2.1.1.2.0',
+                                      '.1.3.6.1.2.1.1.3.0',
+                                      '.1.3.6.1.2.1.1.4.0',
+                                      '.1.3.6.1.2.1.1.5.0',
+                                      '.1.3.6.1.2.1.1.6.0',
+                                      '.1.3.6.1.2.1.1.7.0',
+                                      '.1.3.6.1.2.1.1.8.0',
+                                    ] );
 
 See L<Net::SNMP::get_next_request()|Net::SNMP/get_next_request() - send a SNMP get-next-request to the remote agent>.
 
 =item C<getbulk>
 
+  $poe_kernel->post( snmp => getbulk => parse_getbulk_results =>
+                     maxrepetitions => 8,
+                                    #  system.*
+                     varbindlist => [ '.1.3.6.1.2.1.1' ] );
+
 See L<Net::SNMP::get_bulk_request()|Net::SNMP/get_bulk_request() - send a SNMP get-bulk-request to the remote agent>.
 
 =item C<walk>
 
+  $poe_kernel->post( snmp => walk => parse_walk_results =>
+                                #  system.*
+                     baseoid => [ '.1.3.6.1.2.1.1' ] );
+
 See L<Net::SNMP::get_table()|Net::SNMP/get_table() - retrieve a table from the remote agent>.
+
+=item C<getentries>
+
+See L<Net::SNMP::get_entries()|Net::SNMP/get_entries() - retries select columns of a table from the remote agent>.
 
 =item C<inform>
 
 See L<Net::SNMP::inform_request()|Net::SNMP/inform_request() - send a SNMP inform-request to the remote manager>.
 
 =item C<set>
+
+  $poe_kernel->post( snmp => set => snmp_set_callback =>
+                                    #  system.sysContact
+		     varbindlist => [ '.1.3.6.1.2.1.1.4.0',
+                                      'OCTET_STRING', 'test@test.com'] );
 
 See L<Net::SNMP::set_request()|Net::SNMP/set_request() - send a SNMP set-request to the remote agent>.
 
@@ -593,10 +642,8 @@ L<Net::SNMP::snmpv2_trap()|Net::SNMP/snmpv2_trap() - send a SNMP
 snmpV2-trap to the remote manager>.  This method differs from the
 others in that it does I<not> take a state name as a callback
 parameter.  If the method is invoked with C<POE::Kernel::call()>, the
-return value is that of
-L<Net::SNMP::snmpv2_trap()|Net::SNMP/snmpv2_trap() - send a SNMP
-snmpV2-trap to the remote manager>. A false value indicates an error,
-and the error message can be retrieved using calling C<errmsg>, below.
+return value is that of C<snmpv2_trap()>. A false value indicates an
+error, and the error message can be retrieved via C<errmsg>, below.
 
 =item C<errmsg>
 
@@ -609,10 +656,16 @@ session.
 
   $kernel->post( snmp => 'finish' );
 
-Shut down the SNMP component.  Cancels all current and pending
-requests immediately and closes the session.  If the component is
-currently dispatching a request (waiting for a reply) when this
-request is received, the response NOT be delivered.
+Shut down the specified SNMP component.  All current and pending
+requests are cancelled immediately and the session is closed.  If the
+component is currently dispatching a request (waiting for a reply)
+when this request is received, the response NOT be delivered to the
+designated callback.
+
+B<NOTE:> Things break if you use POE::Kernel's C<call()> method to
+issue a request to a component and then C<call()> a C<finish> to the
+same component within the same event/subroutine.  So don't do that.
+Stick with C<post()> and you'll be fine.
 
 =back
 
@@ -622,7 +675,7 @@ When a request receives a response (or times out), the supplied
 callback event (a POE event name defined in the session that called
 the SNMP component) is invoked.  (See
 L<POE::Session|POE::Session/PREDEFINED EVENT FIELDS> for more
-information about $_[_ARG0] and $_[_ARG1])
+information about C<$_[_ARG0]> and C<$_[_ARG1]>)
 
 The callback's C<$_[ARG0]> parameter is an array reference containing
 the request information: the component alias, hostname, the method
@@ -668,7 +721,7 @@ Originally by Todd Caine E<lt>tcaine@eli.netE<gt>
 
 =head1 COPYRIGHT AND LICENSE
 
-Copyright 2004-2006 by Rob Bloodgood
+Copyright 2004-2008 by Rob Bloodgood
 
 Copyright 2003 by Todd Caine
 
@@ -676,3 +729,5 @@ This library is free software; you can redistribute it and/or modify
 it under the same terms as Perl itself.
 
 =cut
+
+# vi:set foldmethod=marker:

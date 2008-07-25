@@ -1,19 +1,25 @@
 use Test::More;
 
+use warnings;
 use POE;
-plan tests => 4;
-
 
 # this quiets the warning "POE::Kernel's run() method was never called."
-END{ $poe_kernel->run() }
+POE::Kernel->run();
 
+my $CONF = do "config.cache";
 
-# BEGIN { $| = 1; print "1..2\n"; }
-# END {print "not ok 1\n" unless $loaded;}
+if( 0 and $CONF->{skip_all_tests} ) {
+    plan skip_all => 'No SNMP data specified.';
+}
+else {
+    plan tests => 6;
+}
+
 eval { require POE::Component::SNMP };
-# $loaded = 1;
-# print "ok 1\n";
+ok(!$@, "you just saved a kitten");
+
 ok $POE::Component::SNMP::Dispatcher::INSTANCE, 'loaded';
+ok $POE::Component::SNMP::Dispatcher::INSTANCE->isa('POE::Component::SNMP::Dispatcher'), 'correct class';
 
 # THERE IS A TYPO IN '-hosntame'! this should generate an error!
 eval { POE::Component::SNMP->create(
@@ -23,27 +29,28 @@ eval { POE::Component::SNMP->create(
                                     -debug     => $CONF->{debug},
                                     -timeout   => 5,
                                    )
-}
-;
-
+};
 
 # ok $@, $@;
 
-ok $@ =~ /^-?hostname parameter required/, 'catches parameter typo';
+ok $@ =~ /hostname parameter required/, 'catches parameter typo';
 
 # THIS ONE HAS THE TYPO ON 'debug';
 eval { POE::Component::SNMP->create(
-                                    -alias     => 'snmp',
+                                    -alias     => 'snmp2',
                                     -hostname  => $CONF->{hostname} || 'localhost',
                                     -community => $CONF->{community}|| 'public',
                                     -debgu     => $CONF->{debug},
                                     -timeout   => 5,
                                    )
-}
-;
+};
+
+# warn $@;
 
 ok $@ =~ /^Invalid argument/, 'catches parameter typo';
 
 eval { POE::Component::SNMP->create() };
 
-ok $@ =~ /hostname parameter required at/; # dies, no params supplied. actually dies on missing hostname parameter.
+# dies, no params supplied. actually dies on missing hostname parameter.
+ok $@ =~ /hostname parameter required at/, 'catches missing required param';
+

@@ -1,9 +1,7 @@
 use Test::More; # qw/no_plan/;
 use strict;
 
-BEGIN {
-    use_ok POE => qw/Component::SNMP/;
-}
+use POE qw/Component::SNMP/;
 
 use lib qw(t);
 use TestPCS;
@@ -11,22 +9,24 @@ use TestPCS;
 my $CONF = do "config.cache";
 
 if ( $CONF->{skip_all_tests} ) {
+    POE::Kernel->run();
     plan skip_all => 'No SNMP data specified.';
 } else {
     if (1) {
-        plan tests => 35;
+        plan tests => 37;
     } else {
         $poe_kernel->run(); # quiets POE::Kernel warning
         plan skip_all => 'not done yet';
     }
 }
 
-my %system = ( # sysUptime   => '.1.3.6.1.2.1.1.3.0',
+my %system = ( sysUptime   => '.1.3.6.1.2.1.1.3.0',
                sysName     => '.1.3.6.1.2.1.1.5.0',
-               # sysLocation => '.1.3.6.1.2.1.1.6.0',
+               sysLocation => '.1.3.6.1.2.1.1.6.0',
              );
 
-my @oids = values %system;
+my @oids = # values %system;
+  $system{sysName};
 my $base_oid = '.1.3.6.1.2.1.1'; # system.*
 
 my $session2 = 1;
@@ -42,6 +42,7 @@ sub snmp_run_tests {
 				 version   => 'snmpv2c',
                                  debug     => $CONF->{debug},
                                  timeout   => 1,
+                                 retries   => 0,
 
                                 );
     ok $kernel->alias_resolve( 'snmp' ), "1st session created";
@@ -56,7 +57,9 @@ sub snmp_run_tests {
                                      community => 'invalid_community_string_123456789', # $CONF->{'community'},
 				     version   => 'snmpv2c',
                                      debug     => $CONF->{debug},
+                                     # debug => 0x0A,
                                      timeout   => 1,
+                                     retries   => 0,
                                     );
 
 
@@ -79,7 +82,9 @@ sub snmp_run_tests {
 	get_sent($heap);
 
         if (0) {
-            $kernel->post( snmp_2 => get   => get_cb   => -varbindlist => \@oids ); $heap->{pending}{snmp_2}++;
+
+            # sending two, to see how they queue up
+            $kernel->post( snmp_2 => get   => get_cb2   => -varbindlist => [ $system{sysUptime} ] ); $heap->{pending}{snmp_2}++;
             get_sent($heap);
 
             $kernel->post( snmp_2 => getbulk => walk_cb =>
@@ -97,7 +102,11 @@ sub snmp_run_tests {
     $kernel->post( snmp   => get   => get_cb  => -varbindlist => \@oids ); $heap->{pending}{snmp}++;
     get_sent($heap);
 
+    $kernel->post( snmp   => get   => get_cb  => -varbindlist => \@oids ); $heap->{pending}{snmp}++;
+    get_sent($heap);
+
     if (0) {
+
         $kernel->post( snmp   => get   => get_cb2 => -varbindlist => \@oids ); $heap->{pending}{snmp}++;
         get_sent($heap);
 
@@ -177,7 +186,7 @@ sub stop_session {
     ok ref $heap->{snmp} eq 'HASH';
     ok exists $heap->{snmp}{get};
     ok defined $heap->{snmp}{get};
-    ok $heap->{snmp}{get} == 1;
+    ok $heap->{snmp}{get} == 2;
 
     ok exists $heap->{snmp_2};
     ok ref $heap->{snmp_2} eq 'HASH';
@@ -186,7 +195,7 @@ sub stop_session {
     ok $heap->{snmp_2}{get} == 1;
 
     ok $heap->{snmp}{get} + $heap->{snmp}{getbulk} == $heap->{pending}{snmp};
-    ok $heap->{snmp_2}{get} + $heap->{snmp_2}{getbulk} == $heap->{pending}{snmp};
+    # ok $heap->{snmp_2}{get} + $heap->{snmp_2}{getbulk} == $heap->{pending}{snmp};
 
     ok $heap->{snmp}{get} + $heap->{snmp_2}{get} == $heap->{get_seen};
     ok $heap->{snmp}{getbulk} + $heap->{snmp_2}{getbulk} == $heap->{set_seen};

@@ -1,5 +1,3 @@
-use lib q[/home/rob/work/Component-SNMP/lib];
-
 use Test::More;
 
 use POE;
@@ -11,7 +9,9 @@ use TestPCS;
 my $CONF = do "config.cache";
 
 if( $CONF->{skip_all_tests} ) {
+    POE::Kernel->run();
     plan skip_all => 'No SNMP data specified.';
+    
 }
 else {
     plan tests => 12;

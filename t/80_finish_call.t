@@ -14,6 +14,7 @@ use constant TEST_EARLY_FINISH => 1;
 my $CONF = do "config.cache";
 
 if( $CONF->{skip_all_tests} ) {
+    POE::Kernel->run();
     plan skip_all => 'No SNMP data specified.';
 }
 else {

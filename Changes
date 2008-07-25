@@ -389,3 +389,62 @@ Revision history for Perl extension POE::Component::SNMP. -*-text-*-
         - Minor changes to the documentation.
 
         - Removed an unused variable from __clear_pending().
+
+1.10 Fri Jul 25 01:39:08 PDT 2008
+        - Added a Test::Pod pod.t to increase module Kwalitee.  *NOT*
+          adding Test::Pod::Coverage stuff because my "coverage" isn't
+          in functions, but in states.  Plus, Dispatcher doesn't have
+          or need docs.  So there.
+
+        - altered/renamed _get_next_pending_pdu(), returning a scalar
+          to _get_next_pending_pdu_args, returning an array, to unify
+          __dispatch_pdu and __dispatch_pending_pdu
+
+        - merged the __dispatch_pending_pdu event completely into
+          __dispatch_pdu, by making deregister fetch the pending args,
+          since the only difference between them was where they got
+          the args for the SUPER::_send_pdu() call.
+
+        - added clarification to the docs WRT concurrency.
+
+        - fixed a small bug in the error handling for callback_args.
+
+        - POE_ASSERT_DATA still throws a fatal error when
+          alias_resolve() fails (up until 0.95), so updated the check
+          to match this "minimum" condition.
+
+        - updated the docs to have sample usages of each of the
+          request types.
+
+        - tweaked the localport conflict detection slightly.  Added a
+          test for it.
+
+        - Andrew Hoying sent in a patch adding the getentries method,
+          along with POD *and* a test case... woo-hoo!  He reports
+          that switching some of his code from walk to getentries
+          significantly cut down on the amount of packets sent over
+          the network.
+
+        - renamed (un)?watch_transport to (un)?watch_socket.  It's
+          closer to what I really mean, and I've started work on
+          PoCo::SNMP::Session, which will have such a similar
+          structure to this module that I want to unify the
+          differences as far as possible.
+
+        - attempted to alter socket watch/unwatch behavior to leave
+          the socket "hot" in between requests.  This saves 2 method
+          calls and 2 kernel calls per request.  However, it's not
+          quite right, so it's currently disabled
+
+        - fixed a bug where SNMPv3 requests that fail could let me wind
+          up in __clear_pending without a valid socket to unwatch/clear.
+
+        - fixed a bug where I checked _pending_pdu without passing a
+          (mandatory) fileno parameter.  Oops.
+
+        - got the "hot" socket logic right.  I kinda cheated... I just
+          skipped right past pausing/resuming select_read on the sockets.
+
+
+
+        - finally got the tests right.  I hope.

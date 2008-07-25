@@ -1,7 +1,5 @@
 package POE::Component::SNMP::Dispatcher;
 
-$VERSION = '1.28';
-
 use strict;
 
 use base qw/Net::SNMP::Dispatcher/;
@@ -11,20 +9,28 @@ use POE::Session;
 
 use Time::HiRes qw/time/;
 
+our $VERSION = '1.29';
+
 our $INSTANCE;            # reference to our Singleton object
 
 our $MESSAGE_PROCESSING;  # reference to single MP object
 
-use constant VERBOSE => 1; # debugging, that is
+# sub VERBOSE()   { 1 }     # debugging, that is
+use constant VERBOSE => 1;
+
+# sub DEBUG_INFO(){   }
+*DEBUG_INFO = sub {};
 
 *DEBUG_INFO = \&Net::SNMP::Dispatcher::DEBUG_INFO;
-# *DEBUG_INFO = sub () {};
-# sub DEBUG_INFO() { }
 
-sub _ACTIVE()   { 0 }     # State of the event ( not used )
-sub _TIME()     { 1 }     # Execution time
-sub _CALLBACK() { 2 }     # Callback reference
-sub _DELAY()    { 3 }     # Delay, in seconds
+use constant _ACTIVE   => 0;     # State of the event ( not used )
+use constant _TIME     => 1;     # Execution time
+use constant _CALLBACK => 2;     # Callback reference
+use constant _DELAY    => 3;     # Delay, in seconds
+
+use constant _SINGLE   => 0;
+use constant _PAUSE_FD => 0;
+
 
 # {{{ SUBCLASSED METHODS
 
@@ -59,7 +65,6 @@ sub _new_session {
                                          __socket_callback
                                          __listen
                                          __dispatch_pdu
-                                         __dispatch_pending_pdu
                                          __clear_pending
                                          /
                                      ],
@@ -98,14 +103,12 @@ sub send_pdu {
 sub _send_pdu {
     my ($this, $pdu, $timeout, $retries) = @_;
 
-    DEBUG_INFO('dispatching request [%d] %s', $pdu->transport->fileno,
-               VERBOSE ? dump_args( [ $pdu, $timeout, $retries ] ) : '');
+     DEBUG_INFO('dispatching request [%d] %s', $pdu->transport->fileno,
+                VERBOSE ? dump_args( [ $pdu, $timeout, $retries ] ) : '');
 
+    # using yield() or call() instead of post() here breaks things.  So don't do that.
     POE::Kernel->post(_poe_component_snmp_dispatcher => __dispatch_pdu =>
                       $pdu, $timeout, $retries);
-
-    # breaks
-    # POE::Kernel->yield(__dispatch_pdu => $pdu, $timeout, $retries);
 
     1;
 }
@@ -117,7 +120,7 @@ sub _send_pdu {
 
 # In Net::SNMP::Dispatcher, the critical methods to intercept are:
 # - register()  : listen for data on a socket
-# - schedule()  : to schedule a timeout action if no response is received
+# - schedule()  : schedule a timeout action if no response is received
 # - deregister(): stop listening on a socket
 # - cancel()    : cancel a pending event
 # Our versions hand the appropriate actions to POE.
@@ -130,8 +133,7 @@ sub schedule {
     # cook the args like Net::SNMP::schedule() does for _event_insert()
     my $event  = [ $this->{_active}, $time + $when, $this->_callback_create($callback), $when ];
 
-    # $event->[_CALLBACK]->[1] is a $pdu object
-    my $fileno = $event->[_CALLBACK]->[1]->transport->fileno;
+    my $fileno = $this->_get_fileno($event);
     if ($event->[_TIME] <= $time) {
         # run the callback NOW, instead of invoking __invoke_callback.  saves a POE call().
 
@@ -170,7 +172,7 @@ sub cancel {
     DEBUG_INFO('remove alarm id %d', $event->[_TIME]);
     POE::Kernel->alarm_remove($event->[_TIME]);
 
-    return ! ! $this->_pending_pdu_count(); # boolean: are there entries are left?
+    return ! ! $this->_pending_pdu_count($this->_get_fileno($event)); # boolean: are there entries are left?
 }
 
 # }}} schedule and cancel
@@ -206,13 +208,14 @@ sub register {
 
     if (ref ($transport = $this->$SUPER_register($transport, $callback))) {
 
-        POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport);
-        # POE::Kernel->call(_poe_component_snmp_dispatcher => __listen => $transport);
+        # POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport);
+        _SINGLE or
+        POE::Kernel->call(_poe_component_snmp_dispatcher => __listen => $transport);
 
-        # we would use this version if we were stashing the callback
-        # with the "got data" event, but in fact we retrieve it
+        # we would use this version if we were sending the callback to
+        # return with the "got data" event, but in fact we retrieve it
         # directly from the SNMP object.  I can't make up my mind
-        # which is cleaner in terms of encapsulation.
+        # which is cleaner in terms of encapsulation:
 
         # POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport,
         #                 [ $this->_callback_create($callback), $transport ]);
@@ -236,7 +239,7 @@ sub deregister {
                VERBOSE ? dump_args([ $transport ]) : '');
 
     if (ref ($transport = $this->$SUPER_deregister($transport))) {
-        $this->_unwatch_transport($transport);
+        _SINGLE or $this->_unwatch_socket($transport->socket);
     }
 
     # no more current.
@@ -244,7 +247,11 @@ sub deregister {
 
     if ($this->_pending_pdu_count($fileno)) {
         # run next pending
-        POE::Kernel->yield(__dispatch_pending_pdu => $fileno);
+        DEBUG_INFO('dispatching (queued) request on [%d] %d remaining',
+                   $fileno, $this->_pending_pdu_count($fileno) - 1);
+
+        # POE::Kernel->yield(__dispatch_pending_pdu => $fileno);
+        POE::Kernel->yield(__dispatch_pdu => $this->_get_next_pending_pdu_args($fileno));
     }
 
     $transport;
@@ -304,16 +311,15 @@ if (Net::SNMP->VERSION() < 5.0) {
 ## These two methods are the only place in this module where the
 ## socket refcounting is done, so it's all self-contained.
 #
-# {{{ _watch_transport
+# {{{ _watch_socket
 
 # socket listen with refcount.  If socket refcount, increment it. Else
 # set refcount and listen on the socket.
 #
 # accesses global kernel.
-sub _watch_transport {
-    my ($this, $transport) = @_;
-    my $fileno = $transport->fileno;
-    my $socket = $transport->socket;
+sub _watch_socket {
+    my ($this, $socket) = @_;
+    my $fileno = $socket->fileno;
 
     if (not $this->{_refcount}{$fileno}) {
         # reference counting starts at 1 for the controlling
@@ -323,27 +329,31 @@ sub _watch_transport {
         # snmp session is stopped, then it will drop to 0 and we'll
         # stop watching that handle.
         $this->{_refcount}{$fileno} = 1 + 1;
+
+        _SINGLE and $this->{_refcount}{$fileno}--;
+
         DEBUG_INFO('[%d] refcount %d, select', $fileno, $this->{_refcount}{$fileno});
 
         POE::Kernel->select_read($socket, '__socket_callback');
     } else {
+        _SINGLE and return $this->{_refcount}{$fileno};
+
         $this->{_refcount}{$fileno}++;
         DEBUG_INFO('[%d] refcount %d, resume', $fileno, $this->{_refcount}{$fileno});
 
-        POE::Kernel->select_resume_read($socket);
+        _PAUSE_FD and POE::Kernel->select_resume_read($socket);
     }
     $this->{_refcount}{$fileno};
 }
 
-# }}} _watch_transport
-# {{{ _unwatch_transport
+# }}} _watch_socket
+# {{{ _unwatch_socket
 
 # decrement the socket refcount. unlisten if refcount == 0.
 # accesses global kernel.
-sub _unwatch_transport {
-    my ($this, $transport) = @_;
-    my $fileno = $transport->fileno;
-    my $socket = $transport->socket;
+sub _unwatch_socket {
+    my ($this, $socket) = @_;
+    my $fileno = $socket->fileno;
 
     if (--$this->{_refcount}{$fileno} <= 0) {
         DEBUG_INFO('[%d] refcount %d, unselect', $fileno, $this->{_refcount}{$fileno});
@@ -354,13 +364,13 @@ sub _unwatch_transport {
         DEBUG_INFO('[%d] refcount %d, pause %s',
                    $fileno, $this->{_refcount}{$fileno}, ('(deferred)') x defined $this->_current_pdu($fileno) );
 
-        POE::Kernel->select_pause_read($socket) unless $this->_current_pdu($fileno);
+        _PAUSE_FD and POE::Kernel->select_pause_read($socket) unless $this->_current_pdu($fileno);
 
     }
     $this->{_refcount}{$fileno}
 }
 
-# }}} _unwatch_transport
+# }}} _unwatch_socket
 #####
 
 ##### current and pending PDU pethods
@@ -398,10 +408,10 @@ sub _enqueue_pending_pdu {
 }
 
 # dequeues an array reference and dereferences it, returning an array
-sub _get_next_pending_pdu {
+sub _get_next_pending_pdu_args {
     my ($this, $fileno) = @_;
 
-    shift @{$this->{_pending_pdu}{$fileno}}
+    @{ shift @{$this->{_pending_pdu}{$fileno}} }
 }
 
 # deletes the pending queue
@@ -417,11 +427,9 @@ sub _clear_pending_pdu {
 sub _pending_pdu_count {
     my ($this, $fileno) = @_;
 
-    # exists         $this->{_pending_pdu}{$fileno}
-    # and
-    ref $this->{_pending_pdu}{$fileno} eq 'ARRAY'
-      ? scalar @{$this->{_pending_pdu}{$fileno}}
-        : 0
+    ref $this->{_pending_pdu}{$fileno} eq 'ARRAY' ?
+      scalar @{$this->{_pending_pdu}{$fileno}} :
+        0
 }
 
 # }}} _pending_pdu_count
@@ -438,6 +446,22 @@ sub _current_callback {
 }
 
 # }}} _current_callback
+# {{{ _get_fileno
+
+# the calls to schedule($when, $callback) looks like this:
+#    $this->schedule($delay,   [\&_send_pdu,          $pdu, $pdu->timeout, $pdu->retries]);
+#    $this->schedule($timeout, [\&_transport_timeout, $pdu, $timeout,      $retries])
+
+# so _CALLBACK is: [ CODE, PDU, TIMEOUT, RETRIES ];
+
+sub _get_fileno {
+    my ($self, $event) = @_;
+
+    # $event->[_CALLBACK]->[1] is a $pdu object
+    return $event->[_CALLBACK]->[1]->transport->fileno;
+}
+
+# }}} _get_fileno
 
 # }}} PRIVATE METHODS
 # {{{ POE EVENTS
@@ -462,7 +486,8 @@ sub _stop  {
 # We want to prevent conflicts between listening sockets and pending
 # requests, because POE can't listen to two at a time on the same
 # handle.  If that socket is currently listening for a reply to a
-# different request, the request is placed in a queue.
+# different request (eg $this->_current_pdu() is TRUE), the request is
+# queued, otherwise it is dispatched immediately.
 #
 # (which again additionally POE-izes Net::SNMP)
 #
@@ -491,42 +516,13 @@ sub __dispatch_pdu {
 
         $this->_current_pdu($fileno => $pdu);
 
-        VERBOSE and DEBUG_INFO('{--------  SUPER::__send_pdu() for [%d]', $fileno);
+        VERBOSE and DEBUG_INFO('{--------  SUPER::_send_pdu() for [%d]', $fileno);
         $this->SUPER::_send_pdu(@pdu_args);
-        VERBOSE and DEBUG_INFO(' --------} SUPER::__send_pdu() for [%d]', $fileno );
+        VERBOSE and DEBUG_INFO(' --------} SUPER::_send_pdu() for [%d]', $fileno );
     }
 }
 
 # }}} __dispatch_pdu
-# {{{ __dispatch_pending_pdu
-
-# __dispatch_pending_pdu dispatches the next request pending on the
-# (socket) that has just been freed.  we moved the "if pending" check
-# to deregister().
-#
-# this event is invoked by deregister().
-sub __dispatch_pending_pdu {
-    my ($this, $heap, $fileno) = @_[OBJECT, HEAP, ARG0];
-
-    # grab next pdu args
-    my $next_pdu_args = $this->_get_next_pending_pdu($fileno);
-    return unless ref $next_pdu_args eq 'ARRAY';
-
-    # we stashed [ $pdu, $timeout, $retries ]
-    my $pdu = $next_pdu_args->[0];
-
-    # mark this request current
-    $this->_current_pdu($fileno => $pdu);
-
-    DEBUG_INFO('sending (queued) request on [%d] %d remaining',
-               $fileno, $this->_pending_pdu_count($fileno));
-
-    VERBOSE and DEBUG_INFO('{--------  SUPER::__send_pdu() for [%d]', $fileno);
-    $this->SUPER::_send_pdu( @{ $next_pdu_args } );
-    VERBOSE and DEBUG_INFO(' --------} SUPER::__send_pdu() for [%d]', $fileno );
-}
-
-# }}} __dispatch_pending_pdu
 # {{{ __schedule_event
 
 # this event is invoked by schedule() / _event_insert()
@@ -540,6 +536,9 @@ sub __schedule_event {
     # with POE's alarm id.
     #
     # $event->[_CALLBACK] is an opaque callback reference.
+    #
+    # $event->[_DELAY] is how long from the time of scheduling to
+    # fire the event, in seconds
     #
     # We get this same $event back in cancel(), where we reference
     # $event->[_TIME] as alarm id to deactivate.
@@ -558,7 +557,7 @@ sub __schedule_event {
     # I only use $event->[_DELAY] for debugging.
     DEBUG_INFO("alarm id %d, %0.1f seconds [%d] %s",
                $timeout_id, $event->[_DELAY],
-               $event->[_CALLBACK]->[1]->transport->fileno,
+               $this->_get_fileno($event),
                VERBOSE ? dump_args([ $event->[_CALLBACK] ]) : ''
               );
 }
@@ -591,10 +590,14 @@ sub __invoke_callback {
 sub __listen {
     my ($this, $kernel, $heap, $transport, $callback) = @_[OBJECT, KERNEL, HEAP, ARG0, ARG1];
     my $fileno = $transport->fileno;
-    # we'll fetch the callback directly from $this in __socket_callback
+    # we'll fetch the callback directly from $this in
+    # __socket_callback.  later versions of POE allow for sending the
+    # callback with the request, but we only strive for a "relatively
+    # recent" version.  Actually, we've tested all the way back to
+    # 0.22, released 03-Jul-2002.
 
     DEBUG_INFO('listening on [%d]', $fileno);
-    $this->_watch_transport($transport);
+    $this->_watch_socket($transport->socket);
 }
 
 # }}} __listen
@@ -635,7 +638,14 @@ sub __clear_pending {
 
     DEBUG_INFO('start');
 
-    my $fileno = $session->transport->socket->fileno;
+    my $socket =
+      $session->transport ?
+        $session->transport->socket :
+          $session->{_pdu}{_transport} ?
+            $session->{_pdu}{_transport}->socket :
+              undef;
+
+    my $fileno = $socket ? $socket->fileno : undef;
 
     DEBUG_INFO('clearing %d pending requests', $this->_pending_pdu_count($fileno));
     $this->_clear_pending_pdu($fileno);
@@ -645,7 +655,8 @@ sub __clear_pending {
     # socket ops, because next we will stop listening all the way.
 
     # drop reference count
-    $this->_unwatch_transport($session->transport);
+    # $this->_unwatch_socket($session->transport->socket);
+    $this->_unwatch_socket($socket);
 
     if (defined (my $pdu = $this->_clear_current_pdu($fileno))) {
 
@@ -654,7 +665,7 @@ sub __clear_pending {
         # stop listening
         $this->deregister($pdu->transport);
 
-        # cancel pending timeout
+        # cancel pending timeout:
 
         # Fetch the last cached reference held to our request (and its
         # postback) held outside our own codespace...
@@ -678,7 +689,9 @@ sub __clear_pending {
 # this code generates overload stubs for EVERY method in class
 # SUPER, that warn their name and args before calling SUPER:: whatever.
 if (0) {
-    no strict;
+my $code_for_method_tracing = q!<<DONE
+
+    no strict; # 'refs';
     my $package = __PACKAGE__ . "::";
     my $super = "$ISA[0]::";
 
@@ -697,6 +710,7 @@ if (0) {
 
         warn "$@" if $@;        # in case we screwed something up
     }
+!
 
 }
 
@@ -714,7 +728,7 @@ if ($@ or not VERBOSE
 }
 
 sub dump_args {
-    return unless VERBOSE;
+    return '' unless VERBOSE;
     my @out;
     my $first = 0;
     for (@{$_[0]}) {
@@ -741,3 +755,4 @@ sub dump_args {
 1;
 
 __END__
+# vi:foldmethod=marker:
