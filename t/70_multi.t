@@ -1,7 +1,6 @@
 use Test::More; # qw/no_plan/;
 use strict;
 
-use EV;
 use POE qw/Component::SNMP/;
 
 use lib qw(t);

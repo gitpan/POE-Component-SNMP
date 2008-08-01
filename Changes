@@ -448,3 +448,10 @@ Revision history for Perl extension POE::Component::SNMP. -*-text-*-
 
 
         - finally got the tests right.  I hope.
+
+
+1.1001 Fri Aug  1 01:58:09 PDT 2008
+        - nope, still didn't get it right. left a stray dependency.  
+          changed my version system because I seem to do this alot.  now 
+          releasing version 1.1001.  I'm hoping I don't have to release
+          version 1.1002 tomorrow. :)
