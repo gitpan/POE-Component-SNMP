@@ -455,3 +455,18 @@ Revision history for Perl extension POE::Component::SNMP. -*-text-*-
           changed my version system because I seem to do this alot.  now 
           releasing version 1.1001.  I'm hoping I don't have to release
           version 1.1002 tomorrow. :)
+
+1.1002 Fri Dec  4 18:33:23 PST 2009
+        - Updated for Net::SNMP v6.0.0
+
+        - looking more closely at my fail reports, they have another
+          problem: Net::SNMP uses a v-string, and it doesn't compare
+          properly in the test suite.  Tweaked Makefile.PL.
+
+        - Applied cleanup patches from gcola aka acferen__yahoo.com to
+          eliminate some harmless but annoying warnings.
+
+        - Turns out that using POE::Kernel->method as a global access
+          to the kernel is unsupported.  Since I'm already importing
+          POE::Kernel, I have $poe_kernel in my namespace already, so
+          use that instead.

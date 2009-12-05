@@ -13,7 +13,8 @@ if ( $CONF->{skip_all_tests} ) {
     POE::Kernel->run();
     plan skip_all => 'No SNMP data specified.';
 } else {
-    plan tests => 9;
+    # plan tests => 9;
+    plan no_plan;
 }
 
 
@@ -45,7 +46,7 @@ sub snmp_get_tests {
     $kernel->post(
         snmp => 'getentries',
         'snmp_get_cb',
-        -columns => [ 
+        -columns => [
                      '.1.3.6.1.2.1.1.1',
                      '.1.3.6.1.2.1.1.2',
                      '.1.3.6.1.2.1.1.5',
@@ -60,6 +61,8 @@ sub snmp_get_tests {
 sub snmp_get_cb {
     my ($kernel, $heap, $aref) = @_[KERNEL, HEAP, ARG1];
     ok get_seen($heap);
+
+    ok ref $aref eq 'ARRAY', 'callback gets array';
 
     my $href = $aref->[0];
     ok ref $href eq 'HASH'; # no error

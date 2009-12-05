@@ -61,5 +61,5 @@ sub check_port_free {
                                   PeerPort => 161,
                                  );
 
-    return $error ? 1 : 0 ;
+    return $@ ? 1 : 0 ;
 }

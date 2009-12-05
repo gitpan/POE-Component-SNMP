@@ -46,8 +46,9 @@ eval { POE::Component::SNMP->create(
 };
 
 # warn $@;
+# ok $@, $@;
 
-ok $@ =~ /^Invalid argument/, 'catches parameter typo';
+ok $@ =~ /^Invalid argument|The argument .* is unknown/, 'catches parameter typo';
 
 eval { POE::Component::SNMP->create() };
 

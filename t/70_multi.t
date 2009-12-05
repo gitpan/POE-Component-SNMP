@@ -167,7 +167,6 @@ sub get_cb2 {
 
     $heap->{$alias}{$cmd}++;
     push @{$heap->{$alias}{log}}, $cmd;
-    # WWW $heap, $request;
 
     ok $cmd eq 'get', "callback destination is preserved (get)";
 
@@ -188,7 +187,6 @@ sub walk_cb {
 
     $heap->{$alias}{$cmd}++;
     push @{$heap->{$alias}{log}}, $cmd;
-    # WWW $heap, $request;
 
     ok $cmd eq 'getbulk', "callback destination is preserved (getbulk)";
 
@@ -212,7 +210,6 @@ sub walk_cb2 {
 
     $heap->{$alias}{$cmd}++;
     push @{$heap->{$alias}{log}}, $cmd;
-    # WWW $heap, $request;
 
     ok $cmd eq 'getbulk', "callback destination is preserved (getbulk)";
 
@@ -286,6 +283,6 @@ exit 0;
 
 sub check_done_multi {
     my ($heap, $alias) = @_;
-
+    no warnings;
     return $alias if $heap->{$alias}{get} + $heap->{$alias}{getbulk} == $heap->{pending}{$alias};
 }

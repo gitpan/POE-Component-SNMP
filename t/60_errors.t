@@ -245,7 +245,7 @@ sub snmp_run_tests {
 	0 and
 	  skip "write tests", 3;
 
-	skip "no writeable SNMP device available", 3 + 6 if not length $CONF->{wcommunity};
+	skip "no writeable SNMP device available", 3 + 6 if not $CONF->{wcommunity};
 
 	# I picked this OID at random because I figured it would be readonly:
 	# system.sysORTable.sysOREntry.sysORDescr.1

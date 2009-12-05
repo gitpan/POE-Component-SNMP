@@ -85,12 +85,12 @@ sub snmp_get_true {
     ok ref $aref eq 'ARRAY'; # no error
 
     my (undef, @args) = @$aref;
-    if ($heap->{list_seen} == 1) {
+    if ($heap->{list_seen} && $heap->{list_seen} == 1) {
         ok @args;
         ok @args == 3;
-        ok $args[0] == 'A';
-        ok $args[1] == 'B';
-        ok $args[2] == 'C';
+        ok $args[0] eq 'A';
+        ok $args[1] eq 'B';
+        ok $args[2] eq 'C';
     } else {
         $heap->{list_seen}++;
 

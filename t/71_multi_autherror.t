@@ -194,6 +194,7 @@ sub stop_session {
     ok defined $heap->{snmp_2}{get};
     ok $heap->{snmp_2}{get} == 1;
 
+    no warnings;
     ok $heap->{snmp}{get} + $heap->{snmp}{getbulk} == $heap->{pending}{snmp};
     # ok $heap->{snmp_2}{get} + $heap->{snmp_2}{getbulk} == $heap->{pending}{snmp};
 
@@ -225,6 +226,6 @@ exit 0;
 
 sub check_done_multi {
     my ($heap, $alias) = @_;
-
+    no warnings;
     return $alias if $heap->{$alias}{get} + $heap->{$alias}{getbulk} == $heap->{pending}{$alias};
 }

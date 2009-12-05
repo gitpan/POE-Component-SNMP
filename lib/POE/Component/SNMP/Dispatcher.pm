@@ -4,23 +4,25 @@ use strict;
 
 use base qw/Net::SNMP::Dispatcher/;
 
-use POE::Kernel;
+use POE::Kernel; # imports $poe_kernel
 use POE::Session;
 
 use Time::HiRes qw/time/;
+use Scalar::Util qw/weaken/;
 
-our $VERSION = '1.29';
+our $VERSION = '1.30';
 
 our $INSTANCE;            # reference to our Singleton object
 
 our $MESSAGE_PROCESSING;  # reference to single MP object
 
-# sub VERBOSE()   { 1 }     # debugging, that is
-use constant VERBOSE => 1;
+BEGIN {
+    if ( ! defined &VERBOSE ) {
+        eval { sub VERBOSE () { 1 } };
+    }
+}
 
-# sub DEBUG_INFO(){   }
-*DEBUG_INFO = sub {};
-
+# *DEBUG_INFO = sub {};
 *DEBUG_INFO = \&Net::SNMP::Dispatcher::DEBUG_INFO;
 
 use constant _ACTIVE   => 0;     # State of the event ( not used )
@@ -28,9 +30,7 @@ use constant _TIME     => 1;     # Execution time
 use constant _CALLBACK => 2;     # Callback reference
 use constant _DELAY    => 3;     # Delay, in seconds
 
-use constant _SINGLE   => 0;
 use constant _PAUSE_FD => 0;
-
 
 # {{{ SUBCLASSED METHODS
 
@@ -88,7 +88,10 @@ sub send_pdu {
 
     DEBUG_INFO('%s', dump_args( [ $pdu, $delay ] ));
 
+    no warnings; # the line below warns "redefined"
     local *Net::SNMP::Dispatcher::_send_pdu = \&_send_pdu;
+
+    weaken($pdu);
 
     VERBOSE and DEBUG_INFO('{--------  SUPER::send_pdu()');
     my $retval = $this->SUPER::send_pdu($pdu, $delay);
@@ -107,7 +110,7 @@ sub _send_pdu {
                 VERBOSE ? dump_args( [ $pdu, $timeout, $retries ] ) : '');
 
     # using yield() or call() instead of post() here breaks things.  So don't do that.
-    POE::Kernel->post(_poe_component_snmp_dispatcher => __dispatch_pdu =>
+    $poe_kernel->post(_alias() => __dispatch_pdu =>
                       $pdu, $timeout, $retries);
 
     1;
@@ -148,11 +151,11 @@ sub schedule {
 		    VERBOSE ? dump_args( $event->[_CALLBACK] ) : '');
 
          # This call breaks down to $kernel->alarm_set($event)
-         POE::Kernel->call(_poe_component_snmp_dispatcher => __schedule_event => $event);
+         $poe_kernel->call(_alias() => __schedule_event => $event);
 
-	 # POE::Kernel->post(_poe_component_snmp_dispatcher => __schedule_event => $event);
+	 # $poe_kernel->post(_alias() => __schedule_event => $event);
          # breaks
-	 # POE::Kernel->yield(__schedule_event => $event);
+	 # $poe_kernel->yield(__schedule_event => $event);
      }
 
      $event;
@@ -170,7 +173,7 @@ sub cancel {
 
     # $event->[_TIME] is the POE alarm id, which was stashed in __schedule_event
     DEBUG_INFO('remove alarm id %d', $event->[_TIME]);
-    POE::Kernel->alarm_remove($event->[_TIME]);
+    $poe_kernel->alarm_remove($event->[_TIME]);
 
     return ! ! $this->_pending_pdu_count($this->_get_fileno($event)); # boolean: are there entries are left?
 }
@@ -186,7 +189,7 @@ our $SUPER_deregister = 'SUPER::deregister';
 
 ## coding notes
 #
-# Here we say POE::Kernel->call(dispatcher => '__listen' ), which does
+# Here we say $poe_kernel->call(dispatcher => '__listen' ), which does
 # select_read() *within a POE::Session* and returns, instead of simply
 # invoking select_read() here, so that select_read() is guaranteed to
 # occur from within the 'dispatcher' session (instead of possibly the
@@ -208,16 +211,15 @@ sub register {
 
     if (ref ($transport = $this->$SUPER_register($transport, $callback))) {
 
-        # POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport);
-        _SINGLE or
-        POE::Kernel->call(_poe_component_snmp_dispatcher => __listen => $transport);
+        # $poe_kernel->post(_alias() => __listen => $transport);
+        $poe_kernel->call(_alias() => __listen => $transport);
 
         # we would use this version if we were sending the callback to
         # return with the "got data" event, but in fact we retrieve it
         # directly from the SNMP object.  I can't make up my mind
         # which is cleaner in terms of encapsulation:
 
-        # POE::Kernel->post(_poe_component_snmp_dispatcher => __listen => $transport,
+        # $poe_kernel->post(_alias() => __listen => $transport,
         #                 [ $this->_callback_create($callback), $transport ]);
     }
 
@@ -239,7 +241,7 @@ sub deregister {
                VERBOSE ? dump_args([ $transport ]) : '');
 
     if (ref ($transport = $this->$SUPER_deregister($transport))) {
-        _SINGLE or $this->_unwatch_socket($transport->socket);
+        $this->_unwatch_socket($transport->socket);
     }
 
     # no more current.
@@ -250,8 +252,8 @@ sub deregister {
         DEBUG_INFO('dispatching (queued) request on [%d] %d remaining',
                    $fileno, $this->_pending_pdu_count($fileno) - 1);
 
-        # POE::Kernel->yield(__dispatch_pending_pdu => $fileno);
-        POE::Kernel->yield(__dispatch_pdu => $this->_get_next_pending_pdu_args($fileno));
+        # $poe_kernel->yield(__dispatch_pending_pdu => $fileno);
+        $poe_kernel->yield(__dispatch_pdu => $this->_get_next_pending_pdu_args($fileno));
     }
 
     $transport;
@@ -330,18 +332,14 @@ sub _watch_socket {
         # stop watching that handle.
         $this->{_refcount}{$fileno} = 1 + 1;
 
-        _SINGLE and $this->{_refcount}{$fileno}--;
-
         DEBUG_INFO('[%d] refcount %d, select', $fileno, $this->{_refcount}{$fileno});
 
-        POE::Kernel->select_read($socket, '__socket_callback');
+        $poe_kernel->select_read($socket, '__socket_callback');
     } else {
-        _SINGLE and return $this->{_refcount}{$fileno};
-
         $this->{_refcount}{$fileno}++;
         DEBUG_INFO('[%d] refcount %d, resume', $fileno, $this->{_refcount}{$fileno});
 
-        _PAUSE_FD and POE::Kernel->select_resume_read($socket);
+        _PAUSE_FD and $poe_kernel->select_resume_read($socket);
     }
     $this->{_refcount}{$fileno};
 }
@@ -359,12 +357,12 @@ sub _unwatch_socket {
         DEBUG_INFO('[%d] refcount %d, unselect', $fileno, $this->{_refcount}{$fileno});
 
         # stop listening on this socket
-        POE::Kernel->select_read($socket, undef);
+        $poe_kernel->select_read($socket, undef);
     } else {
         DEBUG_INFO('[%d] refcount %d, pause %s',
                    $fileno, $this->{_refcount}{$fileno}, ('(deferred)') x defined $this->_current_pdu($fileno) );
 
-        _PAUSE_FD and POE::Kernel->select_pause_read($socket) unless $this->_current_pdu($fileno);
+        _PAUSE_FD and $poe_kernel->select_pause_read($socket) unless $this->_current_pdu($fileno);
 
     }
     $this->{_refcount}{$fileno}
@@ -455,13 +453,25 @@ sub _current_callback {
 # so _CALLBACK is: [ CODE, PDU, TIMEOUT, RETRIES ];
 
 sub _get_fileno {
-    my ($self, $event) = @_;
+    my ($this, $event) = @_;
 
-    # $event->[_CALLBACK]->[1] is a $pdu object
-    return $event->[_CALLBACK]->[1]->transport->fileno;
+    return $this->_fileno_from_callback($event->[_CALLBACK]);
+}
+
+sub _fileno_from_callback {
+    my ($self, $callback) = @_;
+    # $callback->[1] is a $pdu object
+    return $callback->[1]->transport->fileno;
 }
 
 # }}} _get_fileno
+
+# {{{ _alias
+
+# this session runs as a singleton, here is its session alias:
+sub _alias { '_poe_component_snmp_dispatcher' }
+
+# }}} _alias
 
 # }}} PRIVATE METHODS
 # {{{ POE EVENTS
@@ -472,11 +482,11 @@ sub _get_fileno {
 # {{{ _start and _stop
 
 sub _start {
-    $_[KERNEL]->alias_set('_poe_component_snmp_dispatcher')
+    $_[KERNEL]->alias_set(_alias())
 }
 
 sub _stop  {
-    $_[KERNEL]->alias_remove('_poe_component_snmp_dispatcher');
+    $_[KERNEL]->alias_remove(_alias());
     undef $INSTANCE;
 }
 
@@ -493,7 +503,7 @@ sub _stop  {
 #
 # this event is invoked by _send_pdu()
 sub __dispatch_pdu {
-    my ($this, $heap, @pdu_args) = @_[OBJECT, HEAP, ARG0..$#_];
+    my ($this, @pdu_args) = @_[OBJECT, ARG0..$#_];
 
     # these are the args this state was invoked with:
     # @pdu_args = ( $pdu, $timeout, $retries );
@@ -527,7 +537,7 @@ sub __dispatch_pdu {
 
 # this event is invoked by schedule() / _event_insert()
 sub __schedule_event {
-    my ($this, $kernel, $event) = @_[ OBJECT, KERNEL, ARG0 ];
+    my ($this, $event) = @_[ OBJECT, ARG0 ];
 
     # $event->[_ACTIVE] is always true for us, and we ignore it.
     #
@@ -548,7 +558,7 @@ sub __schedule_event {
         return;
     }
 
-    my $timeout_id = $kernel->alarm_set(__invoke_callback => $event->[_TIME], $event->[_CALLBACK]);
+    my $timeout_id = $poe_kernel->alarm_set(__invoke_callback => $event->[_TIME], $event->[_CALLBACK]);
 
     # stash the alarm id.  since $event is a reference, this
     # assignment is "global".
@@ -571,7 +581,7 @@ sub __schedule_event {
 sub __invoke_callback {
     my ($this, $callback) = @_[OBJECT, ARG0];
 
-    my $fileno = $callback->[1]->transport->fileno;
+    my $fileno = $this->_fileno_from_callback($callback);
     DEBUG_INFO('{--------  invoking scheduled callback for [%d] %s',
                $fileno, VERBOSE ? dump_args([ $callback ]) : '');
 
@@ -588,15 +598,14 @@ sub __invoke_callback {
 #
 # this event is invoked by register()
 sub __listen {
-    my ($this, $kernel, $heap, $transport, $callback) = @_[OBJECT, KERNEL, HEAP, ARG0, ARG1];
-    my $fileno = $transport->fileno;
+    my ($this, $transport, $callback) = @_[OBJECT, ARG0, ARG1];
     # we'll fetch the callback directly from $this in
     # __socket_callback.  later versions of POE allow for sending the
     # callback with the request, but we only strive for a "relatively
     # recent" version.  Actually, we've tested all the way back to
     # 0.22, released 03-Jul-2002.
 
-    DEBUG_INFO('listening on [%d]', $fileno);
+    DEBUG_INFO('listening on [%d]', $transport->fileno);
     $this->_watch_socket($transport->socket);
 }
 
@@ -608,7 +617,7 @@ sub __listen {
 # this event is invoked when a watched socket becomes ready to read
 # data.
 sub __socket_callback {
-    my ($this, $heap, $socket) = @_[OBJECT, HEAP, ARG0];
+    my ($this, $socket) = @_[OBJECT, ARG0];
     my $fileno = $socket->fileno;
 
     return unless $this->_current_callback($fileno);
@@ -689,7 +698,7 @@ sub __clear_pending {
 # this code generates overload stubs for EVERY method in class
 # SUPER, that warn their name and args before calling SUPER:: whatever.
 if (0) {
-my $code_for_method_tracing = q!<<DONE
+my $code_for_method_tracing = q!
 
     no strict; # 'refs';
     my $package = __PACKAGE__ . "::";
@@ -716,15 +725,18 @@ my $code_for_method_tracing = q!<<DONE
 
 # {{{ dump_args
 
-# get sub_fullname from Sub::Identify if it's present.  If it's not,
-# generate our own, simple version.
-eval { require Sub::Identify };
+# get sub_fullname from Sub::Identify if it's present and we're being
+# VERBOSE.  Otherwise, generate our own, simple version.
+eval { use Sub::Identify qw/sub_fullname/ };
 
 if ($@ or not VERBOSE
    ) {
-    eval { sub sub_fullname { ref shift } }
-} else {
-    Sub::Identify->import('sub_fullname');
+
+ no warnings 'redefine';
+ eval { sub sub_fullname($) { ref shift } };
+
+# } else {
+#     Sub::Identify->import('sub_fullname');
 }
 
 sub dump_args {
@@ -739,8 +751,10 @@ sub dump_args {
             $out .= '[';
             $out .= join ' ', map {ref $_ ? (ref $_ eq 'CODE' ? sub_fullname($_) : ref $_ ) : $_ || 'undef'} @$_;
             $out .= ']';
-        } else {
+        } elsif (defined $_) {
             $out .= ref $_ ? ref $_ : $_;
+        } else {
+            $out .= 'undef';
         }
         push @out, $out;
     }

@@ -2,11 +2,13 @@ package POE::Component::SNMP;
 
 use strict;
 
-our $VERSION = '1.1001';
+our $VERSION = '1.1002';
 
 package POE::Net::SNMP;
 
 use base q/Net::SNMP/;
+
+# use Net::SNMP::XS;
 
 our %localport;
 
@@ -257,13 +259,19 @@ sub snmp_request {
             @snmp_args = _dwim_set_request_args(@snmp_args);
         }
 
+        use Spiffy qw/:XXX/;
+        use YAML;
+
 	# this $postback is a closure.  it goes away after firing.
         my $postback = $sender->postback($target_state => @postback_args);
         $ok = $heap->{snmp_session}->$method( @snmp_args,
                                               -callback =>
                                               [ sub { $postback->( ( defined ($_[0]->var_bind_list) ?
                                                                      $_[0]->var_bind_list : $_[0]->error
-                                                                   ),
+                                                                   )
+                                                                   # x 0,
+                                                                   # $_[0],
+                                                                   ,
                                                                    @callback_args,
                                                                  );
                                                   }
@@ -327,12 +335,13 @@ sub snmp_callback_args {
 # scan an array for a key matching qw/ -key key Key KEY / and fetch
 # the value. return the value and the remaining arg list minus the
 # key/value pair.
-sub _arg_scan {
+sub _arg_scan_old {
     my ($key, @arg) = @_;
 
     my $value;
     # scan the @arg for any keys that are callback args.
     for (0..$#arg) {
+        next unless defined $arg[$_];
         if ($arg[$_] =~ /^-?$key$/i) {
             $value = $arg[$_ + 1];
 
@@ -342,6 +351,25 @@ sub _arg_scan {
     }
 
     ($value, @arg);
+}
+
+sub _arg_scan {
+    my ($key, @arg) = @_;
+    my ($value, $k_idx, $v_idx, @ret_arg);
+
+    # scan the @arg for any keys that are callback args.
+    for $k_idx ( map { $_*2 } (0..(@arg/2-1)) ) {
+        $v_idx = ($k_idx+1);
+        if ($arg[$k_idx] =~ m/^-?$key$/i) {
+            $value = $arg[$v_idx];
+        } else {
+            # we only return args that didn't match our scan.
+            push @ret_arg, @arg[$k_idx, $v_idx];
+        }
+    }
+
+    ($value, @ret_arg);
+
 }
 
 # }}} _arg_scan
@@ -504,10 +532,10 @@ a separate instance of the component for each host, by giving each
 component a different C<-alias> parameter in the constructor.
 
 Multiple requests to a particular instance are processed in FIFO
-order, I<including retries> (C<-retries> defaults to 1).
-This means that if you have multiple pending responses, and one
+order, I<including retries> (C<-retries> defaults to 1).  This means
+that if you have multiple pending requests to a single host, and one
 automatically attempts retry for whatever reason, the retry request
-will "go to the end of the line" behind any other pending requests.
+will "go to the end of the line" behind any other queued requests.
 
 There is no limit to how many simultaneous instances can be processing
 requests.  It is possible to create multiple instances for the same

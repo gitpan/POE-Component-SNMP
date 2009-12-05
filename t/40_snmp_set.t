@@ -13,7 +13,7 @@ my $CONF = do "config.cache";
 if( $CONF->{skip_all_tests} ) {
     POE::Kernel->run(); # quiets warning: POE::Kernel's run() method was never called.
     plan skip_all => 'No SNMP data specified.';
-} elsif ( not length $CONF->{wcommunity} ) {
+} elsif ( not $CONF->{wcommunity} ) {
     POE::Kernel->run(); # quiets warning: POE::Kernel's run() method was never called.
     plan skip_all => 'No write community specified.';
 } else {
