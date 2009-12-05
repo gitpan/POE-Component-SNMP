@@ -47,9 +47,9 @@ sub snmp_get_tests {
         snmp => 'getentries',
         'snmp_get_cb',
         -columns => [
-                     '.1.3.6.1.2.1.1.1',
-                     '.1.3.6.1.2.1.1.2',
-                     '.1.3.6.1.2.1.1.5',
+                     '1.3.6.1.2.1.1.1',
+                     '1.3.6.1.2.1.1.2',
+                     '1.3.6.1.2.1.1.5',
                     ],
         -startindex => 0,
     );
@@ -65,11 +65,15 @@ sub snmp_get_cb {
     ok ref $aref eq 'ARRAY', 'callback gets array';
 
     my $href = $aref->[0];
-    ok ref $href eq 'HASH'; # no error
+    # ok ref $href eq 'HASH'; # no error
 
-    foreach my $k (keys %$href) {
-	# ok
-        $heap->{results}{$k} = $href->{$k}; # got a result
+    if (ref $href) {
+        foreach my $k (keys %$href) {
+            # ok
+            $heap->{results}{$k} = $href->{$k}; # got a result
+        }
+    } else {
+        ok $href;
     }
 
     if (check_done($heap)) {

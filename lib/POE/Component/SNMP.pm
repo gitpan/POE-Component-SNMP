@@ -2,7 +2,7 @@ package POE::Component::SNMP;
 
 use strict;
 
-our $VERSION = '1.1002';
+our $VERSION = '1.1003';
 
 package POE::Net::SNMP;
 
