@@ -475,5 +475,10 @@ Revision history for Perl extension POE::Component::SNMP. -*-text-*-
         - Cleanups
 
 1.1004 Mon Dec  7 13:17:15 PST 2009
-
         - more cleanups
+
+1.1005 Mon Dec  7 13:30:08 PST 2009
+        - Apparently my 'eval { use Sub::Identify }' is causing
+          hiccups with smoke testing.  Rewritten to 'eval { require
+          Sub::Identify }'
+

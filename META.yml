@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               POE-Component-SNMP
-version:            1.1004
+version:            1.1005
 abstract:           ~
 author:
     - Rob Bloodgood <rob@exitexchange.com>

@@ -10,7 +10,7 @@ use POE::Session;
 use Time::HiRes qw/time/;
 use Scalar::Util qw/weaken/;
 
-our $VERSION = '1.30';
+our $VERSION = '1.31';
 
 our $INSTANCE;            # reference to our Singleton object
 
@@ -18,7 +18,7 @@ our $MESSAGE_PROCESSING;  # reference to single MP object
 
 BEGIN {
     if ( ! defined &VERBOSE ) {
-        eval { sub VERBOSE () { 1 } };
+        eval { sub VERBOSE () { 0 } };
     }
 }
 
@@ -727,16 +727,15 @@ my $code_for_method_tracing = q!
 
 # get sub_fullname from Sub::Identify if it's present and we're being
 # VERBOSE.  Otherwise, generate our own, simple version.
-eval { use Sub::Identify qw/sub_fullname/ };
+eval { require Sub::Identify };
 
-if ($@ or not VERBOSE
-   ) {
+if ($@ or not VERBOSE) {
 
  no warnings 'redefine';
  eval { sub sub_fullname($) { ref shift } };
 
-# } else {
-#     Sub::Identify->import('sub_fullname');
+} else {
+    Sub::Identify->import('sub_fullname');
 }
 
 sub dump_args {
