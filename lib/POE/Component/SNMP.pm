@@ -2,7 +2,7 @@ package POE::Component::SNMP;
 
 use strict;
 
-our $VERSION = '1.1003';
+our $VERSION = '1.1004';
 
 package POE::Net::SNMP;
 
@@ -258,9 +258,6 @@ sub snmp_request {
             # string => numeric constant processing
             @snmp_args = _dwim_set_request_args(@snmp_args);
         }
-
-        use Spiffy qw/:XXX/;
-        use YAML;
 
 	# this $postback is a closure.  it goes away after firing.
         my $postback = $sender->postback($target_state => @postback_args);

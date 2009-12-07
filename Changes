@@ -470,3 +470,10 @@ Revision history for Perl extension POE::Component::SNMP. -*-text-*-
           to the kernel is unsupported.  Since I'm already importing
           POE::Kernel, I have $poe_kernel in my namespace already, so
           use that instead.
+
+1.1003
+        - Cleanups
+
+1.1004 Mon Dec  7 13:17:15 PST 2009
+
+        - more cleanups
