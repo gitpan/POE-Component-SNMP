@@ -1,6 +1,6 @@
 --- #YAML:1.0
 name:               POE-Component-SNMP
-version:            1.1005
+version:            1.1006
 abstract:           ~
 author:
     - Rob Bloodgood <rob@exitexchange.com>
@@ -11,7 +11,7 @@ configure_requires:
 build_requires:
     ExtUtils::MakeMaker:  0
 requires:
-    Net::SNMP:    4
+    Net::SNMP:    0
     POE:          0.31
     Time::HiRes:  0
 no_index:

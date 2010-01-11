@@ -16,6 +16,8 @@ else {
     plan tests => 12;
 }
 
+$|++;
+
 POE::Session->create
 ( inline_states =>
   {

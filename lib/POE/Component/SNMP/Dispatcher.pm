@@ -10,7 +10,7 @@ use POE::Session;
 use Time::HiRes qw/time/;
 use Scalar::Util qw/weaken/;
 
-our $VERSION = '1.31';
+our $VERSION = '1.32';
 
 our $INSTANCE;            # reference to our Singleton object
 
@@ -209,7 +209,7 @@ sub register {
 
     DEBUG_INFO('register on [%d] %s', $transport->fileno, VERBOSE ? dump_args([ $callback ]) : '');
 
-    if (ref ($transport = $this->$SUPER_register($transport, $callback))) {
+    if (ref ($transport = $this->SUPER::register($transport, $callback))) {
 
         # $poe_kernel->post(_alias() => __listen => $transport);
         $poe_kernel->call(_alias() => __listen => $transport);
@@ -240,7 +240,7 @@ sub deregister {
     DEBUG_INFO('deregister on [%d] %s', $transport->fileno,
                VERBOSE ? dump_args([ $transport ]) : '');
 
-    if (ref ($transport = $this->$SUPER_deregister($transport))) {
+    if (ref ($transport = $this->SUPER::deregister($transport))) {
         $this->_unwatch_socket($transport->socket);
     }
 
@@ -260,50 +260,6 @@ sub deregister {
 }
 
 # }}} register and deregister
-
-# {{{ Net::SNMP v4.x
-
-# Net::SNMP 5.x changed some of the method names of methods I was
-# overriding.  I decided to support both versions.
-
-# The two variables $SUPER_register and $SUPER_deregister are kindof a
-# hack around the syntax that I *want* to work, but is not valid perl:
-# $self->SUPER::$method()
-#
-# (caller(0))[3] can't always be trusted to find the value of $method,
-# especially when the function being called started its life being
-# called &register, but is now being invoked as &_listen.
-#
-# so here we manually list our SUPER::$method names, and in case it
-# turns out we're working with Net::SNMP v4.x, we change the names
-# (and symbol table entries) below.
-
-if (Net::SNMP->VERSION() < 5.0) {
-
-    # In our SUPER class (Net::SNMP::Dispatcher), the critical methods
-    # to interecept are:
-    #
-    # _listen: listen for data on a socket
-    # _schedule: schedule a timeout action if no response is received
-    # _unlisten: stop listening on a socket
-    # _cancel: cancel a timeout if a response is received
-    #
-    # Here, we play games with the symbol table so that these
-    # functions, which were renamed from 4.x to 5.x, are subclassed
-    # appropriately.
-
-    *_schedule = \&schedule;
-    *_cancel   = \&cancel;
-
-    *_listen   = \&register;
-    *_unlisten = \&deregister;
-
-    $SUPER_register = 'SUPER::_listen';
-    $SUPER_deregister = 'SUPER::_unlisten';
-
-}
-
-# }}} Net::SNMP v4.x
 
 # }}} SUBCLASSED METHODS
 # {{{ PRIVATE METHODS
@@ -735,7 +691,7 @@ if ($@ or not VERBOSE) {
  eval { sub sub_fullname($) { ref shift } };
 
 } else {
-    Sub::Identify->import('sub_fullname');
+    Sub::Identify->import('sub_fullname') unless *sub_fullname;
 }
 
 sub dump_args {

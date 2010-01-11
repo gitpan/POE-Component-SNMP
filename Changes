@@ -482,3 +482,9 @@ Revision history for Perl extension POE::Component::SNMP. -*-text-*-
           hiccups with smoke testing.  Rewritten to 'eval { require
           Sub::Identify }'
 
+1.1006 Sun Jan 10 20:17:10 PST 2010
+        - well I'm now blushing because I finally found a bug that was
+          reported to me but I was previously unable to reproduce.
+          The author of Net::SNMP has released v6.0.0, which doesn't
+          compare very well to a "regular" number like 5.0.  This
+          broke my 4.x support.  So I have removed it.

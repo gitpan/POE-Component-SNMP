@@ -9,7 +9,7 @@ WriteMakefile(
     VERSION_FROM	=> 'lib/POE/Component/SNMP.pm',
     (LICENSE            => 'perl') x ($ExtUtils::MakeMaker::VERSION >= 6.31),
 
-    PREREQ_PM		=> { 'POE' => 0.31, 'Net::SNMP' => 4.0, 'Time::HiRes' => 0 },
+    PREREQ_PM		=> { 'POE' => 0.31, 'Net::SNMP' => 0, 'Time::HiRes' => 0 },
     (AUTHOR     => 'Rob Bloodgood <rob@exitexchange.com>') x ($] >= 5.005),
 );
 
